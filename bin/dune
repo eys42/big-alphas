@@ -1,0 +1,4 @@
+(executable
+ (public_name big-alphas)
+ (name main)
+ (libraries big_alphas))
