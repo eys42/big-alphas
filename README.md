@@ -3,3 +3,4 @@
 ## Team members
 
 Ethan Song (eys42)
+Stephanie Chen (sc2927)
