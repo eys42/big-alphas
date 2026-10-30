@@ -1,6 +1,0 @@
-# dune describe --format sexp --lang 0.1
-# OCAMLPARAM: unset
-# Shared cache: enabled-except-user-rules
-# Shared cache location: /Users/Kippy/.cache/dune/db
-# Workspace root: /Users/Kippy/Desktop/CS3110/big-alphas
-# Auto-detected concurrency: 8
