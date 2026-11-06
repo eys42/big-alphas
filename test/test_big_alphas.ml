@@ -201,9 +201,9 @@ let test_strike_updates_opponent_cells _ =
   assert_equal
     (Board.Occupied (carrier, true))
     (Board.cell_at_opponent board 0 0);
-  assert_equal (Board.Sunk carrier) (Board.strike board 0 1);
-  assert_equal (Board.Sunk carrier) (Board.cell_at_opponent board 0 1);
-  assert_equal (Board.Sunk carrier) (Board.cell_at_opponent board 0 0)
+  assert_equal (Board.Sunk (carrier, false)) (Board.strike board 0 1);
+  assert_equal (Board.Sunk (carrier, false)) (Board.cell_at_opponent board 0 1);
+  assert_equal (Board.Sunk (carrier, false)) (Board.cell_at_opponent board 0 0)
 
 let test_strike_collects_treasure _ =
   let board = Board.init 5 [] 17 in
@@ -232,7 +232,7 @@ let test_strike_rejects_already_hit_cells _ =
   assert_equal (Board.Occupied (carrier, true)) (Board.strike board 0 0);
   assert_raises (Invalid_argument "Can't hit the same cell twice") (fun () ->
       Board.strike board 0 0);
-  assert_equal (Board.Sunk carrier) (Board.strike board 0 1);
+  assert_equal (Board.Sunk (carrier, false)) (Board.strike board 0 1);
   assert_raises (Invalid_argument "Can't hit the same cell twice") (fun () ->
       Board.strike board 0 1);
   let empty_x, empty_y =
@@ -257,6 +257,23 @@ let test_strike_rejects_already_hit_cells _ =
   assert_raises (Invalid_argument "Can't hit a collected treasure chest")
     (fun () -> Board.strike treasure_board treasure_x treasure_y)
 
+let test_golden_ship_cell_at_own_and_strike _ =
+  let golden_ship = Board.Ship.create ~is_golden:true (0, 0) Board.East 2 in
+  let board = Board.init 5 [ golden_ship ] 17 in
+  assert_equal
+    (Board.Occupied (golden_ship, false))
+    (Board.cell_at_own board 0 0);
+  assert_equal
+    (Board.Occupied (golden_ship, false))
+    (Board.cell_at_own board 0 1);
+  assert_equal (Board.Occupied (golden_ship, true)) (Board.strike board 0 0);
+  assert_equal
+    (Board.Occupied (golden_ship, true))
+    (Board.cell_at_own board 0 0);
+  assert_equal (Board.Sunk (golden_ship, true)) (Board.strike board 0 1);
+  assert_equal (Board.Sunk (golden_ship, true)) (Board.cell_at_own board 0 0);
+  assert_equal (Board.Sunk (golden_ship, true)) (Board.cell_at_own board 0 1)
+
 let board_opponent =
   "Board.cell_at_opponent and Board.strike"
   >::: [
@@ -269,6 +286,8 @@ let board_opponent =
          "strike collects treasure" >:: test_strike_collects_treasure;
          "strike rejects already hit cells"
          >:: test_strike_rejects_already_hit_cells;
+         "golden ship cell_at_own and strike"
+         >:: test_golden_ship_cell_at_own_and_strike;
        ]
 
 let test_reveal_rejects_invalid_arguments _ =

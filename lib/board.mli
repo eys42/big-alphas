@@ -6,12 +6,14 @@ type direction =
   | South
   | West
 
+(** [Ship] module for creation and representation of ships in the game. *)
 module Ship : sig
   type s
 
-  val create : int * int -> direction -> int -> s
-  (** [create anchor direction length] creates a new ship with the given anchor,
-      orientation, and length. *)
+  val create : ?is_golden:bool -> int * int -> direction -> int -> s
+  (** [create anchor ?is_golden anchor direction length] creates a new ship with
+      the given anchor, orientation, and length. Optional labeled argument
+      [is_golden] indicates whether the ship is golden. *)
 end
 
 type t
@@ -19,7 +21,7 @@ type t
 type powerup =
   | Nuke
   | Radar
-  | Collected
+  | Collected (* treasure has already been collected *)
 
 type cell =
   | Empty (* empty cell that has not been revealed *)
@@ -30,7 +32,9 @@ type cell =
   | Occupied of Ship.s * bool
     (* cell occupied by ship, not revealed or hit. boolean indicates whether it
        has been hit *)
-  | Sunk of Ship.s (* cell occupied by a sunk ship *)
+  | Sunk of Ship.s * bool
+    (* cell occupied by a sunk ship. boolean indicates whether it was the golden
+       ship. *)
   | Miss (* cell that has been fired upon but is empty *)
   | Treasure_chest of powerup * bool
 (* cell containing a powerup. boolean indicates whether it has been revealed *)

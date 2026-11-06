@@ -12,11 +12,12 @@ module Ship = struct
     anchor : int * int;
     orientation : direction;
     length : int;
+    is_golden : bool;
   }
 
-  let create anchor orientation length =
+  let create ?(is_golden = false) anchor orientation length =
     if length < 1 then invalid_arg "Ship length must be positive";
-    { anchor; orientation; length }
+    { anchor; orientation; length; is_golden }
 end
 
 include Ship
@@ -35,7 +36,9 @@ type cell =
   | Occupied of s * bool
     (* cell occupied by ship, not revealed or hit. boolean indicates whether it
        has been hit *)
-  | Sunk of s (* cell occupied by a sunk ship *)
+  | Sunk of s * bool
+    (* cell occupied by a sunk ship. boolean indicates whether it was the golden
+       ship. *)
   | Miss (* cell that has been fired upon but is empty *)
   | Treasure_chest of powerup * bool
 (* cell containing a powerup. boolean indicates whether it has been revealed *)
@@ -124,7 +127,7 @@ let cell_at_opponent board x y =
     | Empty -> Hidden
     | Revealed _ as cell -> cell
     | Occupied (ship, hit) as cell -> if hit then cell else Hidden
-    | Sunk ship -> Sunk ship
+    | Sunk (ship, is_golden) -> Sunk (ship, is_golden)
     | Miss -> Miss
     | Treasure_chest (p, revealed) -> (
         match p with
@@ -141,8 +144,10 @@ let process_hit board ship x y =
     (fun ship x y -> if board.(x).(y) = Occupied (ship, true) then incr hits)
     ship;
   if !hits = ship.length then (
-    traverse_ship board (fun ship x y -> board.(x).(y) <- Sunk ship) ship;
-    Sunk ship)
+    traverse_ship board
+      (fun ship x y -> board.(x).(y) <- Sunk (ship, ship.is_golden))
+      ship;
+    Sunk (ship, ship.is_golden))
   else Occupied (ship, true)
 
 let strike board x y =
