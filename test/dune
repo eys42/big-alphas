@@ -3,3 +3,6 @@
  (libraries big_alphas ounit2)
  (instrumentation
   (backend bisect_ppx)))
+
+(cram
+ (deps ../bin/main.exe))
