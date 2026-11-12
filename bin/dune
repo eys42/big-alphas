@@ -1,4 +1,4 @@
 (executable
- (public_name big-alphas)
+ (public_name big_alphas)
  (name main)
- (libraries big_alphas))
+ (libraries big_alphas batteries))

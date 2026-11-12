@@ -16,7 +16,8 @@ Charles Xue (cx272)
 
 If not already installed, run:
 
-`opam install bisect_ppx`
+`opam install bisect_ppx` and
+`opam install batteries`
 
 Run the test suite with the command:
 

@@ -1,3 +1,4 @@
 (library
  (name big_alphas)
- (instrumentation (backend bisect_ppx)))
+ (instrumentation (backend bisect_ppx))
+ (libraries batteries))
