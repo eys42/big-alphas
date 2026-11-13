@@ -1,5 +1,5 @@
-(test
- (name test_big_alphas)
+(tests
+ (names test_board test_cli_display)
  (libraries big_alphas ounit2)
  (instrumentation
   (backend bisect_ppx)))
