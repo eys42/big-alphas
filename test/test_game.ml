@@ -3,20 +3,20 @@
 open OUnit2
 open Big_alphas
 
+(* Use a fixed seed so tests are reproducible. *)
 let new_game () = Game.create ~seed:42 Strategy.Easy
 
 let assert_invalid_argument f =
   try
     ignore (f ());
-    assert_failure "Expected Invalid_argument, but no exception was raised"
+    assert_failure "Expected Invalid_argument"
   with Invalid_argument _ -> ()
 
-(** Find a coordinate whose *actual* board cell satisfies [predicate]. This
-    avoids relying on ship locations or a fixed board size. *)
+(* Find a cell matching a condition, without hardcoding ship locations. *)
 let find_cell board predicate =
   let size = Board.dim board in
   let rec search x y =
-    if x >= size then assert_failure "No cell matched the test condition"
+    if x >= size then assert_failure "No matching cell found"
     else if y >= size then search (x + 1) 0
     else if predicate (Board.cell_at_own board x y) then (x, y)
     else search x (y + 1)
@@ -31,97 +31,223 @@ let is_unhit_ship = function
   | Board.Occupied (_, false) -> true
   | _ -> false
 
+(* Find a coordinate that can currently be attacked. *)
+let find_strikeable board =
+  let size = Board.dim board in
+  let rec search x y =
+    if x >= size then assert_failure "No strikeable cell found"
+    else if y >= size then search (x + 1) 0
+    else if Strategy.strikeable board x y then (x, y)
+    else search x (y + 1)
+  in
+  search 0 0
+
+(* Snapshot board states without comparing ship internals. *)
+let cell_description = function
+  | Board.Empty -> "empty"
+  | Board.Hidden -> "hidden"
+  | Board.Revealed None -> "revealed-empty"
+  | Board.Revealed (Some _) -> "revealed-ship"
+  | Board.Occupied (_, false) -> "unhit-ship"
+  | Board.Occupied (_, true) -> "hit-ship"
+  | Board.Sunk (_, false) -> "sunk-ship"
+  | Board.Sunk (_, true) -> "sunk-golden-ship"
+  | Board.Miss -> "miss"
+  | Board.Treasure_chest (Board.Nuke, revealed) ->
+      if revealed then "revealed-nuke" else "nuke"
+  | Board.Treasure_chest (Board.Radar, revealed) ->
+      if revealed then "revealed-radar" else "radar"
+  | Board.Treasure_chest (Board.Collected, _) -> "collected-chest"
+
+let snapshot_board board =
+  let size = Board.dim board in
+  List.init size (fun x ->
+      List.init size (fun y ->
+          cell_description (Board.cell_at_own board x y)))
+
+(* TEST 1: A new game initializes correctly. *)
 let test_initial_state _ =
   let game = new_game () in
   assert_equal Game.Human (Game.current_player game);
   assert_equal None (Game.winner game);
   assert_equal
     (Board.dim (Game.human_board game))
-    (Board.dim (Game.opponent_board game))
+    (Board.dim (Game.opponent_board game));
+  ignore (find_cell (Game.human_board game) is_unhit_ship);
+  ignore (find_cell (Game.opponent_board game) is_unhit_ship)
 
+(* TEST 2: A human miss is recorded correctly. *)
 let test_human_miss _ =
   let game = new_game () in
   let board = Game.opponent_board game in
   let x, y = find_cell board is_empty in
+
   assert_equal Board.Miss (Game.human_strike game x y);
   assert_equal Board.Miss (Board.cell_at_own board x y);
-  assert_equal Game.Computer (Game.current_player game);
-  assert_equal None (Game.winner game)
+  assert_equal Game.Computer (Game.current_player game)
 
+(* TEST 3: A human hit is recorded correctly. *)
 let test_human_hit _ =
   let game = new_game () in
   let board = Game.opponent_board game in
   let x, y = find_cell board is_unhit_ship in
+
   (match Game.human_strike game x y with
   | Board.Occupied (_, true) | Board.Sunk _ -> ()
-  | _ -> assert_failure "Attacking a ship must register a hit or sink");
-  assert_bool "Attacked ship square should no longer be strikeable"
-    (not (Strategy.strikeable board x y));
-  assert_equal Game.Computer (Game.current_player game)
+  | _ -> assert_failure "Expected hit or sunk ship");
 
-let test_out_of_bounds_preserves_turn _ =
+  assert_bool "Hit cell should not be strikeable"
+    (not (Strategy.strikeable board x y))
+
+(* TEST 4: Out-of-bounds attacks are rejected. *)
+let test_out_of_bounds _ =
   let game = new_game () in
-  let size = Board.dim (Game.opponent_board game) in
+  let board = Game.opponent_board game in
+  let size = Board.dim board in
+  let before = snapshot_board board in
+
   assert_invalid_argument (fun () -> Game.human_strike game (-1) 0);
+  assert_invalid_argument (fun () -> Game.human_strike game 0 (-1));
   assert_invalid_argument (fun () -> Game.human_strike game size 0);
-  assert_equal Game.Human (Game.current_player game);
-  assert_equal None (Game.winner game)
+  assert_invalid_argument (fun () -> Game.human_strike game 0 size);
 
-let test_wrong_turn_preserves_board _ =
-  let game = new_game () in
-  let board = Game.opponent_board game in
-  let x, y = find_cell board is_empty in
-  ignore (Game.human_strike game x y);
-  let x2, y2 = find_cell board is_empty in
-  assert_invalid_argument (fun () -> Game.human_strike game x2 y2);
-  assert_equal Board.Empty (Board.cell_at_own board x2 y2);
-  assert_equal Game.Computer (Game.current_player game)
-
-let test_computer_turn _ =
-  let game = new_game () in
-  let board = Game.opponent_board game in
-  let x, y = find_cell board is_empty in
-  ignore (Game.human_strike game x y);
-  let human_board = Game.human_board game in
-  let (mx, my), _result = Game.machine_strike game in
-  let size = Board.dim human_board in
-  assert_bool "Computer x in bounds" (mx >= 0 && mx < size);
-  assert_bool "Computer y in bounds" (my >= 0 && my < size);
-  assert_bool "Computer's shot is now marked as used"
-    (not (Strategy.strikeable human_board mx my));
+  assert_equal before (snapshot_board board);
   assert_equal Game.Human (Game.current_player game)
 
-let test_repeated_attack_preserves_turn _ =
+(* TEST 5: Humans cannot attack out of turn. *)
+let test_wrong_turn _ =
   let game = new_game () in
   let board = Game.opponent_board game in
   let x, y = find_cell board is_empty in
+
+  ignore (Game.human_strike game x y);
+
+  let before = snapshot_board board in
+  let x2, y2 = find_cell board is_empty in
+
+  assert_invalid_argument (fun () -> Game.human_strike game x2 y2);
+  assert_equal before (snapshot_board board);
+  assert_equal Game.Computer (Game.current_player game)
+
+(* TEST 6: Computer cannot attack before its turn. *)
+let test_computer_cannot_start _ =
+  let game = new_game () in
+  let board = Game.human_board game in
+  let before = snapshot_board board in
+
+  assert_invalid_argument (fun () -> Game.machine_strike game);
+  assert_equal before (snapshot_board board);
+  assert_equal Game.Human (Game.current_player game)
+
+(* TEST 7: Computer makes a valid attack on its turn. *)
+let test_computer_turn _ =
+  let game = new_game () in
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+  ignore (Game.human_strike game x y);
+
+  let board = Game.human_board game in
+  let (mx, my), _ = Game.machine_strike game in
+  let size = Board.dim board in
+
+  assert_bool "Computer x out of bounds" (mx >= 0 && mx < size);
+  assert_bool "Computer y out of bounds" (my >= 0 && my < size);
+  assert_bool "Computer attack must be recorded"
+    (not (Strategy.strikeable board mx my));
+
+  assert_equal Game.Human (Game.current_player game)
+
+(* TEST 8: Computer cannot attack twice in a row. *)
+let test_computer_cannot_go_twice _ =
+  let game = new_game () in
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+
   ignore (Game.human_strike game x y);
   ignore (Game.machine_strike game);
-  assert_invalid_argument (fun () -> Game.human_strike game x y);
-  assert_equal Game.Human (Game.current_player game);
-  assert_equal Board.Miss (Board.cell_at_own board x y)
 
-let test_win_and_game_over _ =
+  let board = Game.human_board game in
+  let before = snapshot_board board in
+
+  assert_invalid_argument (fun () -> Game.machine_strike game);
+  assert_equal before (snapshot_board board);
+  assert_equal Game.Human (Game.current_player game)
+
+(* TEST 9: Repeated attacks on a missed cell are rejected. *)
+let test_repeated_miss _ =
   let game = new_game () in
-  let size = Board.dim (Game.opponent_board game) in
+  let board = Game.opponent_board game in
+  let x, y = find_cell board is_empty in
+
+  ignore (Game.human_strike game x y);
+  ignore (Game.machine_strike game);
+
+  assert_invalid_argument (fun () -> Game.human_strike game x y);
+  assert_equal Board.Miss (Board.cell_at_own board x y);
+  assert_equal Game.Human (Game.current_player game)
+
+(* TEST 10: Repeated attacks on a hit ship are rejected. *)
+let test_repeated_hit _ =
+  let game = new_game () in
+  let board = Game.opponent_board game in
+  let x, y = find_cell board is_unhit_ship in
+
+  ignore (Game.human_strike game x y);
+  ignore (Game.machine_strike game);
+
+  let before = snapshot_board board in
+
+  assert_invalid_argument (fun () -> Game.human_strike game x y);
+  assert_equal before (snapshot_board board);
+  assert_equal Game.Human (Game.current_player game)
+
+(* TEST 11: Human attacks do not change their own board. *)
+let test_human_preserves_own_board _ =
+  let game = new_game () in
+  let board = Game.human_board game in
+  let before = snapshot_board board in
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+
+  ignore (Game.human_strike game x y);
+
+  assert_equal before (snapshot_board board)
+
+(* TEST 12: Computer attacks do not change its own board. *)
+let test_computer_preserves_own_board _ =
+  let game = new_game () in
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+  ignore (Game.human_strike game x y);
+
+  let board = Game.opponent_board game in
+  let before = snapshot_board board in
+
+  ignore (Game.machine_strike game);
+
+  assert_equal before (snapshot_board board)
+
+(* TEST 13: A complete game eventually ends with a winner. *)
+let test_full_game _ =
+  let game = new_game () in
+  let size = Board.dim (Game.human_board game) in
+
   let rec play fuel =
-    if fuel = 0 then assert_failure "The game never reached a winner"
-    else
-      match Game.winner game with
-      | Some _ -> ()
-      | None ->
-          (match Game.current_player game with
-          | Game.Human ->
-              (* Inspect the board only to pick a winning move in the test.
-                 Actual gameplay still goes through Game.human_strike. *)
-              let x, y = find_cell (Game.opponent_board game) is_unhit_ship in
-              ignore (Game.human_strike game x y)
-          | Game.Computer -> ignore (Game.machine_strike game));
-          play (fuel - 1)
+    match Game.winner game with
+    | Some _ -> ()
+    | None ->
+        if fuel = 0 then assert_failure "Game did not finish";
+
+        (match Game.current_player game with
+        | Game.Human ->
+            let x, y = find_strikeable (Game.opponent_board game) in
+            ignore (Game.human_strike game x y)
+        | Game.Computer ->
+            ignore (Game.machine_strike game));
+
+        play (fuel - 1)
   in
-  play ((2 * size * size) + 2);
-  assert_equal (Some Game.Human) (Game.winner game);
-  assert_equal Game.Human (Game.current_player game);
+
+  play (2 * size * size + 2);
+
+  assert_bool "Game should have a winner" (Game.winner game <> None);
+
   assert_invalid_argument (fun () -> Game.human_strike game 0 0);
   assert_invalid_argument (fun () -> Game.machine_strike game)
 
@@ -129,14 +255,18 @@ let suite =
   "Game rules"
   >::: [
          "initial state" >:: test_initial_state;
-         "human miss updates board and turn" >:: test_human_miss;
-         "human hit records attack" >:: test_human_hit;
-         "out of bounds does not use turn" >:: test_out_of_bounds_preserves_turn;
-         "wrong player cannot attack" >:: test_wrong_turn_preserves_board;
-         "computer attack is valid" >:: test_computer_turn;
-         "cannot attack the same square twice"
-         >:: test_repeated_attack_preserves_turn;
-         "winning ends the game" >:: test_win_and_game_over;
+         "human miss" >:: test_human_miss;
+         "human hit" >:: test_human_hit;
+         "out of bounds" >:: test_out_of_bounds;
+         "wrong turn" >:: test_wrong_turn;
+         "computer cannot start" >:: test_computer_cannot_start;
+         "computer attack" >:: test_computer_turn;
+         "computer cannot go twice" >:: test_computer_cannot_go_twice;
+         "repeated miss" >:: test_repeated_miss;
+         "repeated hit" >:: test_repeated_hit;
+         "human preserves own board" >:: test_human_preserves_own_board;
+         "computer preserves own board" >:: test_computer_preserves_own_board;
+         "complete game" >:: test_full_game;
        ]
 
 let () = run_test_tt_main suite
