@@ -394,5 +394,66 @@ let board_reveal =
          "reveals treasure chest" >:: test_reveal_treasure_chest;
        ]
 
-let suite = "Board" >::: [ board_init; board_opponent; board_reveal ]
+let test_nuke_center _ =
+  let board = Board.init 5 [] 17 in
+  let results = Board.nuke board 2 2 in
+  assert_equal
+    [ (1, 1); (1, 2); (1, 3); (2, 1); (2, 2); (2, 3); (3, 1); (3, 2); (3, 3) ]
+    (List.map fst results);
+  List.iter
+    (fun ((x, y), cell) ->
+      assert_equal cell
+        (match Board.cell_at_own board x y with
+        | Board.Treasure_chest (Board.Collected, _) ->
+            (* a chest in the blast is opened *)
+            cell
+        | now -> now))
+    results
+
+let test_nuke_clips_at_edge _ =
+  let board = Board.init 5 [] 17 in
+  assert_equal
+    [ (0, 0); (0, 1); (1, 0); (1, 1) ]
+    (List.map fst (Board.nuke board 0 0));
+  assert_equal
+    [ (3, 3); (3, 4); (4, 3); (4, 4) ]
+    (List.map fst (Board.nuke board 4 4))
+
+let test_nuke_skips_struck _ =
+  let board = Board.init 5 [] 17 in
+  ignore (Board.strike board 2 2);
+  let cells = List.map fst (Board.nuke board 2 2) in
+  assert_equal 8 (List.length cells);
+  assert_bool "struck cell is skipped" (not (List.mem (2, 2) cells));
+  assert_equal [] (Board.nuke board 2 2)
+
+let test_nuke_hits_and_sinks _ =
+  let ship = Board.Ship.create (1, 1) Board.East 2 in
+  let board = Board.init 5 [ ship ] 17 in
+  let results = Board.nuke board 1 1 in
+  assert_equal (Some (Board.Sunk (ship, false))) (List.assoc_opt (1, 2) results);
+  assert_equal (Board.Sunk (ship, false)) (Board.cell_at_own board 1 1);
+  assert_equal (Board.Sunk (ship, false)) (Board.cell_at_own board 1 2)
+
+let test_nuke_out_of_bounds _ =
+  let board = Board.init 5 [] 17 in
+  List.iter
+    (fun (x, y) ->
+      assert_raises (Invalid_argument "Coordinates out of bounds") (fun () ->
+          Board.nuke board x y))
+    [ (-1, 0); (0, -1); (5, 0); (0, 5) ]
+
+let board_nuke =
+  "Board.nuke"
+  >::: [
+         "blasts a 3x3 area" >:: test_nuke_center;
+         "clips at the edge" >:: test_nuke_clips_at_edge;
+         "skips struck cells" >:: test_nuke_skips_struck;
+         "hits and sinks ships" >:: test_nuke_hits_and_sinks;
+         "rejects an out-of-bounds center" >:: test_nuke_out_of_bounds;
+       ]
+
+let suite =
+  "Board" >::: [ board_init; board_opponent; board_reveal; board_nuke ]
+
 let () = run_test_tt_main suite

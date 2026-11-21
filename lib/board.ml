@@ -182,3 +182,19 @@ let reveal board x y =
       board.(x).(y) <- Treasure_chest (p, true);
       Treasure_chest (p, true)
   | _ -> invalid_arg "Can't reveal a cell that has already been revealed"
+
+(*ADDED BY KANAT FOR ETHAN'S CONVENIENCE: VERY MUCH SUBJECT TO CHANGE/DELETION
+  IF HE WISHES.*)
+let nuke board x y =
+  if not (in_bounds board x y) then invalid_arg "Coordinates out of bounds";
+  List.concat_map
+    (fun dx -> List.map (fun dy -> (x + dx, y + dy)) [ -1; 0; 1 ])
+    [ -1; 0; 1 ]
+  |> List.filter (fun (nx, ny) -> in_bounds board nx ny)
+  |> List.filter_map (fun (nx, ny) ->
+      (* The cell is read when its turn comes: an earlier strike in this blast
+         may have sunk the ship that covers it. *)
+      match board.(nx).(ny) with
+      | Occupied (_, true) | Sunk _ | Miss | Treasure_chest (Collected, _) ->
+          None
+      | _ -> Some ((nx, ny), strike board nx ny))

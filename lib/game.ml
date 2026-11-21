@@ -14,6 +14,8 @@ type t = {
   machine : Strategy.t;
   mutable turn : player;
   mutable winner : player option;
+  mutable human_nukes : int;  (**ADDED BY KANAT TO IMRPOVE PLAYER NUKES.*)
+  mutable computer_nukes : int;  (**ADDED BY KANAT TO IMRPOVE PLAYER NUKES.*)
 }
 
 (* Provisional board settings. *)
@@ -50,6 +52,8 @@ let create ?seed difficulty =
     machine = Strategy.create difficulty rng;
     turn = Human;
     winner = None;
+    human_nukes = 0;
+    computer_nukes = 0;
   }
 
 let human_board game = game.human_board
@@ -86,11 +90,32 @@ let finish_turn game attacker target_board =
       | Human -> Computer
       | Computer -> Human)
 
+let nukes game = function
+  | Human -> game.human_nukes
+  | Computer -> game.computer_nukes
+
+(** [nukes_found cells] is how many of [cells] are nuke chests that were just
+    opened. *)
+let nukes_found cells =
+  List.length
+    (List.filter
+       (function
+         | Board.Treasure_chest (Board.Nuke, _) -> true
+         | _ -> false)
+       cells)
+
+(** [add_nukes game player n] gives [player] [n] more nukes. *)
+let add_nukes game player n =
+  match player with
+  | Human -> game.human_nukes <- game.human_nukes + n
+  | Computer -> game.computer_nukes <- game.computer_nukes + n
+
 let human_strike game x y =
   require_turn game Human;
   if not (Strategy.strikeable game.computer_board x y) then
     invalid_arg "Invalid or previously attacked coordinate";
   let result = Board.strike game.computer_board x y in
+  add_nukes game Human (nukes_found [ result ]);
   finish_turn game Human game.computer_board;
   result
 
@@ -98,23 +123,67 @@ let machine_strike game =
   require_turn game Computer;
   let x, y = Strategy.choose_shot game.machine game.human_board in
   let result = Board.strike game.human_board x y in
+  add_nukes game Computer (nukes_found [ result ]);
   finish_turn game Computer game.human_board;
   ((x, y), result)
+
+(** [blast game attacker target_board x y] spends one of [attacker]'s nukes on
+    the 3x3 area centered on [(x, y)] of [target_board], gives [attacker] any
+    nukes found in the area, and ends the turn. Requires that [attacker] has a
+    nuke. Raises [Invalid_argument], without changing the game, if [(x, y)] is
+    out of bounds or the whole area has already been struck. *)
+let blast game attacker target_board x y =
+  let results = Board.nuke target_board x y in
+  if results = [] then invalid_arg "Nothing left to nuke in that area";
+  add_nukes game attacker (nukes_found (List.map snd results) - 1);
+  finish_turn game attacker target_board;
+  results
+
+let human_nuke game x y =
+  require_turn game Human;
+  if game.human_nukes < 1 then invalid_arg "No nukes available";
+  blast game Human game.computer_board x y
+
+type machine_move =
+  | Shot of (int * int) * Board.cell
+  | Blast of (int * int) * ((int * int) * Board.cell) list
+
+let machine_turn game =
+  require_turn game Computer;
+  let target =
+    if game.computer_nukes > 0 then
+      Strategy.choose_nuke game.machine game.human_board
+    else None
+  in
+  match target with
+  | Some (x, y) -> Blast ((x, y), blast game Computer game.human_board x y)
+  | None ->
+      let shot, result = machine_strike game in
+      Shot (shot, result)
 
 (** Convert the result of one attack to a message for the CLI. *)
 let describe_attack = function
   | Board.Miss -> "Miss!"
   | Board.Occupied (_, true) -> "Hit!"
   | Board.Sunk _ -> "Ship sunk!"
-  | Board.Treasure_chest (Board.Nuke, _) ->
-      "Found a nuke chest (power-ups not active yet)."
+  | Board.Treasure_chest (Board.Nuke, _) -> "Found a nuke chest!"
   | Board.Treasure_chest (Board.Radar, _) ->
       "Found a radar chest (power-ups not active yet)."
   | _ -> "Attack completed."
 
-(** Read an attack in column/row order to match Display's column labels. [None]
-    means the user typed q/quit or closed standard input. *)
-let rec prompt_attack board =
+(** What the player asked to do on their turn. *)
+type action =
+  | Fire of int * int
+  | Nuke_at of int * int
+
+(** [prompt_attack board nukes] reads an attack in column/row order to match
+    Display's column labels, or [nuke COLUMN ROW] to spend one of the [nukes]
+    the player holds. [None] means the user typed q/quit or closed standard
+    input. *)
+let rec prompt_attack board nukes =
+  if nukes > 0 then
+    Printf.printf "\nYou have %d nuke(s); type 'nuke COLUMN ROW' to use one."
+      nukes;
   Printf.printf "\nEnter COLUMN ROW (0-%d), or q to quit: " (Board.dim board - 1);
   flush stdout;
   match read_line () with
@@ -126,16 +195,33 @@ let rec prompt_attack board =
         let words =
           String.split_on_char ' ' input |> List.filter (fun word -> word <> "")
         in
-        match words with
+        match List.map String.lowercase_ascii words with
+        | [ "nuke"; col; row ] -> (
+            match (int_of_string_opt col, int_of_string_opt row) with
+            | Some x, Some y when nukes > 0 -> Some (Nuke_at (x, y))
+            | _, _ when nukes = 0 ->
+                print_endline "You have no nukes.";
+                prompt_attack board nukes
+            | _ ->
+                print_endline "Please enter two numbers after nuke.";
+                prompt_attack board nukes)
         | [ col; row ] -> (
             match (int_of_string_opt col, int_of_string_opt row) with
-            | Some x, Some y when Strategy.strikeable board x y -> Some (x, y)
+            | Some x, Some y when Strategy.strikeable board x y ->
+                Some (Fire (x, y))
             | _ ->
                 print_endline "Invalid or previously attacked coordinate.";
-                prompt_attack board)
+                prompt_attack board nukes)
         | _ ->
             print_endline "Please enter two numbers separated by a space.";
-            prompt_attack board)
+            prompt_attack board nukes)
+
+(** [describe_blast results] is one line per cell that a nuke struck. *)
+let describe_blast results =
+  List.iter
+    (fun ((x, y), cell) ->
+      Printf.printf "  (%d, %d): %s\n" x y (describe_attack cell))
+    results
 
 let show_boards game =
   print_endline "\nYour board:";
@@ -157,18 +243,30 @@ let rec play game =
       match game.turn with
       | Human -> (
           show_boards game;
-          match prompt_attack game.computer_board with
+          match prompt_attack game.computer_board game.human_nukes with
           | None -> print_endline "Game exited."
-          | Some (x, y) ->
+          | Some (Fire (x, y)) ->
               let result = human_strike game x y in
               Printf.printf "You attacked (%d, %d): %s\n" x y
                 (describe_attack result);
+              play game
+          | Some (Nuke_at (x, y)) ->
+              (match human_nuke game x y with
+              | results ->
+                  Printf.printf "You nuked the area around (%d, %d):\n" x y;
+                  describe_blast results
+              | exception Invalid_argument msg -> print_endline msg);
               play game)
-      | Computer ->
-          let (x, y), result = machine_strike game in
-          Printf.printf "Computer attacked (%d, %d): %s\n" x y
-            (describe_attack result);
-          play game)
+      | Computer -> (
+          match machine_turn game with
+          | Shot ((x, y), result) ->
+              Printf.printf "Computer attacked (%d, %d): %s\n" x y
+                (describe_attack result);
+              play game
+          | Blast ((x, y), results) ->
+              Printf.printf "Computer nuked the area around (%d, %d):\n" x y;
+              describe_blast results;
+              play game))
 
 let run (settings : Cli.settings) =
   match settings.players with
@@ -177,12 +275,8 @@ let run (settings : Cli.settings) =
       | Some difficulty ->
           print_endline "Welcome to Battleship!";
           print_endline
-            "Ships are placed automatically. Power-ups are not active yet.";
-          (match difficulty with
-          | Strategy.Hard ->
-              print_endline
-                "Note: hard currently uses medium attack logic in Strategy."
-          | Strategy.Easy | Strategy.Medium -> ());
+            "Ships are placed automatically. Strike a nuke chest to win a \
+             nuke; radar and golden ships are not active yet.";
           play (create difficulty)
       | None -> invalid_arg "Invalid computer difficulty")
   | 2 ->

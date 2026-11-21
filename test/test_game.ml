@@ -62,8 +62,7 @@ let cell_description = function
 let snapshot_board board =
   let size = Board.dim board in
   List.init size (fun x ->
-      List.init size (fun y ->
-          cell_description (Board.cell_at_own board x y)))
+      List.init size (fun y -> cell_description (Board.cell_at_own board x y)))
 
 (* TEST 1: A new game initializes correctly. *)
 let test_initial_state _ =
@@ -238,18 +237,107 @@ let test_full_game _ =
         | Game.Human ->
             let x, y = find_strikeable (Game.opponent_board game) in
             ignore (Game.human_strike game x y)
-        | Game.Computer ->
-            ignore (Game.machine_strike game));
+        | Game.Computer -> ignore (Game.machine_strike game));
 
         play (fuel - 1)
   in
 
-  play (2 * size * size + 2);
+  play ((2 * size * size) + 2);
 
   assert_bool "Game should have a winner" (Game.winner game <> None);
 
   assert_invalid_argument (fun () -> Game.human_strike game 0 0);
   assert_invalid_argument (fun () -> Game.machine_strike game)
+
+let is_nuke_chest = function
+  | Board.Treasure_chest (Board.Nuke, _) -> true
+  | _ -> false
+
+(** [with_nuke ()] is a game in which the human has just opened the computer's
+    nuke chest and the computer has taken its turn, so it is the human's turn
+    again. *)
+let with_nuke () =
+  let game = new_game () in
+  let x, y = find_cell (Game.opponent_board game) is_nuke_chest in
+  ignore (Game.human_strike game x y);
+  ignore (Game.machine_strike game);
+  game
+
+let test_nukes_start_at_zero _ =
+  let game = new_game () in
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_equal 0 (Game.nukes game Game.Computer)
+
+let test_nuke_chest_gives_nuke _ =
+  let game = new_game () in
+  let x, y = find_cell (Game.opponent_board game) is_nuke_chest in
+  ignore (Game.human_strike game x y);
+  assert_equal 1 (Game.nukes game Game.Human)
+
+let test_human_nuke_needs_nuke _ =
+  let game = new_game () in
+  assert_invalid_argument (fun () -> Game.human_nuke game 5 5);
+  assert_equal Game.Human (Game.current_player game)
+
+let test_human_nuke _ =
+  let game = with_nuke () in
+  let results = Game.human_nuke game 5 5 in
+  (* nine cells, minus the nuke chest if it was in the area *)
+  assert_bool "blast struck the area" (List.length results >= 8);
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_equal Game.Computer (Game.current_player game);
+  ignore (Game.machine_strike game);
+  assert_invalid_argument (fun () -> Game.human_nuke game 5 5)
+
+let test_human_nuke_errors_keep_nuke _ =
+  let game = with_nuke () in
+  assert_invalid_argument (fun () -> Game.human_nuke game (-1) 0);
+  assert_invalid_argument (fun () -> Game.human_nuke game 0 10);
+  ignore (Game.human_nuke game 5 5);
+  ignore (Game.machine_strike game);
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_equal Game.Human (Game.current_player game)
+
+let test_human_nuke_wrong_turn _ =
+  let game = with_nuke () in
+  ignore (Game.human_nuke game 5 5);
+  assert_invalid_argument (fun () -> Game.human_nuke game 1 1)
+
+let test_machine_turn_shot _ =
+  let game = new_game () in
+  let x, y = find_strikeable (Game.opponent_board game) in
+  ignore (Game.human_strike game x y);
+  match Game.machine_turn game with
+  | Game.Shot _ -> assert_equal Game.Human (Game.current_player game)
+  | Game.Blast _ -> assert_failure "no nuke, so the computer cannot blast"
+
+let test_machine_turn_wrong_turn _ =
+  assert_invalid_argument (fun () -> Game.machine_turn (new_game ()))
+
+(** Medium and Hard use [machine_turn] for whole games, which may include nukes,
+    and every game ends with a winner. *)
+let test_full_game_machine_turn _ =
+  List.iter
+    (fun difficulty ->
+      List.iter
+        (fun seed ->
+          let game = Game.create ~seed difficulty in
+          let size = Board.dim (Game.human_board game) in
+          let rec play fuel =
+            match Game.winner game with
+            | Some _ -> ()
+            | None ->
+                if fuel = 0 then assert_failure "Game did not finish";
+                (match Game.current_player game with
+                | Game.Human ->
+                    let x, y = find_strikeable (Game.opponent_board game) in
+                    ignore (Game.human_strike game x y)
+                | Game.Computer -> ignore (Game.machine_turn game));
+                play (fuel - 1)
+          in
+          play ((2 * size * size) + 2))
+        [ 1; 2; 3; 4; 5 ])
+    [ Strategy.Medium; Strategy.Hard ]
 
 let suite =
   "Game rules"
@@ -267,6 +355,15 @@ let suite =
          "human preserves own board" >:: test_human_preserves_own_board;
          "computer preserves own board" >:: test_computer_preserves_own_board;
          "complete game" >:: test_full_game;
+         "nukes start at zero" >:: test_nukes_start_at_zero;
+         "nuke chest gives a nuke" >:: test_nuke_chest_gives_nuke;
+         "human nuke needs a nuke" >:: test_human_nuke_needs_nuke;
+         "human nuke" >:: test_human_nuke;
+         "failed nuke keeps the nuke" >:: test_human_nuke_errors_keep_nuke;
+         "human nuke out of turn" >:: test_human_nuke_wrong_turn;
+         "computer shot without a nuke" >:: test_machine_turn_shot;
+         "computer cannot go out of turn" >:: test_machine_turn_wrong_turn;
+         "complete game with nukes" >:: test_full_game_machine_turn;
        ]
 
 let () = run_test_tt_main suite

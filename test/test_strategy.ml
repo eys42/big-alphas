@@ -226,6 +226,172 @@ let test_difficulty_of_string _ =
   assert_equal (Some Strategy.Hard) (Strategy.difficulty_of_string "hard");
   assert_equal None (Strategy.difficulty_of_string "Easy")
 
+(** [even (x, y)] is whether [(x, y)] is on the checkerboard pattern that Hard
+    searches. *)
+let even (x, y) = (x + y) mod 2 = 0
+
+(** With nothing to follow up, Hard fires only at checkerboard cells. *)
+let test_hard_hunts_checkerboard _ =
+  List.iter
+    (fun seed ->
+      let board = one_ship () in
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      assert_bool
+        (say seed "shot is on the checkerboard")
+        (even (Strategy.choose_shot m board)))
+    seeds
+
+(** After one hit, Hard fires at an unstruck orthogonal neighbor of it. *)
+let test_hard_follows_single_hit _ =
+  List.iter
+    (fun seed ->
+      let board = one_ship () in
+      ignore (Board.strike board 2 3);
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      let x, y = Strategy.choose_shot m board in
+      assert_bool
+        (say seed (Printf.sprintf "(%d,%d) is next to the hit" x y))
+        (List.mem (x, y) [ (1, 3); (2, 4); (3, 3); (2, 2) ]))
+    seeds
+
+(** After two hits in a row, Hard fires only at the cells at the ends of the
+    row, never beside it. *)
+let test_hard_extends_line _ =
+  List.iter
+    (fun seed ->
+      let board = one_ship () in
+      ignore (Board.strike board 2 2);
+      ignore (Board.strike board 2 3);
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      let x, y = Strategy.choose_shot m board in
+      assert_bool
+        (say seed (Printf.sprintf "(%d,%d) is at an end of the row" x y))
+        (List.mem (x, y) [ (2, 1); (2, 4) ]))
+    seeds
+
+(** If one end of a row is already a miss, Hard fires at the other end. *)
+let test_hard_skips_blocked_end _ =
+  let board = one_ship () in
+  List.iter
+    (fun (x, y) -> ignore (Board.strike board x y))
+    [ (2, 2); (2, 3); (2, 1) ];
+  List.iter
+    (fun seed ->
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      assert_equal ~msg:(say seed "shot") (2, 4) (Strategy.choose_shot m board))
+    (List.init 10 Fun.id)
+
+(** Once the ship sinks, Hard goes back to the checkerboard search. *)
+let test_hard_after_sinking _ =
+  let board = one_ship () in
+  List.iter
+    (fun (x, y) -> ignore (Board.strike board x y))
+    [ (2, 2); (2, 3); (2, 4) ];
+  List.iter
+    (fun seed ->
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      assert_bool
+        (say seed "shot is on the checkerboard")
+        (even (Strategy.choose_shot m board)))
+    seeds
+
+(** [shots_to_win d seed] is how many shots a machine player of difficulty [d]
+    needs to sink every ship on a 10x10 board. *)
+let shots_to_win d seed =
+  let board =
+    Board.init 10 (Strategy.place_ships d (rng seed) 10 lengths) seed
+  in
+  let m = Strategy.create d (rng (seed + 1000)) in
+  let rec go shots sunk =
+    if sunk = List.length lengths then shots
+    else
+      let x, y = Strategy.choose_shot m board in
+      match Board.strike board x y with
+      | Board.Sunk _ -> go (shots + 1) (sunk + 1)
+      | _ -> go (shots + 1) sunk
+  in
+  go 0 0
+
+(** On average, Hard sinks the fleet in fewer shots than Easy. *)
+let test_hard_beats_easy _ =
+  let average d =
+    List.fold_left (fun total seed -> total + shots_to_win d seed) 0 seeds
+  in
+  assert_bool "hard needs fewer shots than easy"
+    (average Strategy.Hard < average Strategy.Easy)
+
+(** [area_free board (x, y)] is whether the whole 3x3 area around [(x, y)] is on
+    [board] and unstruck. *)
+let area_free board center =
+  List.for_all (fun (x, y) -> Strategy.strikeable board x y) (around center)
+
+(** [crowded ()] is a 6x6 board on which every 3x3 area contains a struck cell:
+    misses at (1,1), (1,4), (4,1), and (4,4). *)
+let crowded () =
+  let board = one_ship () in
+  List.iter
+    (fun (x, y) -> ignore (Board.strike board x y))
+    [ (1, 1); (1, 4); (4, 1); (4, 4) ];
+  board
+
+(** Easy never uses a nuke. *)
+let test_nuke_easy _ =
+  List.iter
+    (fun seed ->
+      let m = Strategy.create Strategy.Easy (rng seed) in
+      assert_equal ~msg:(say seed "nuke") None
+        (Strategy.choose_nuke m (one_ship ())))
+    seeds
+
+(** Medium and Hard nuke an area that is entirely on the board and unstruck. *)
+let test_nuke_area_unstruck _ =
+  List.iter
+    (fun d ->
+      List.iter
+        (fun seed ->
+          let board = one_ship () in
+          ignore (Board.strike board 3 3);
+          ignore (Board.strike board 0 5);
+          let m = Strategy.create d (rng seed) in
+          match Strategy.choose_nuke m board with
+          | Some center ->
+              assert_bool (say seed "area is unstruck") (area_free board center)
+          | None -> assert_failure (say seed "expected a nuke"))
+        seeds)
+    [ Strategy.Medium; Strategy.Hard ]
+
+(** If every 3x3 area has a struck cell, no difficulty nukes. *)
+let test_nuke_none_available _ =
+  List.iter
+    (fun d ->
+      let m = Strategy.create d (rng 0) in
+      assert_equal None (Strategy.choose_nuke m (crowded ())))
+    [ Strategy.Easy; Strategy.Medium; Strategy.Hard ]
+
+(** With only (0,0) struck, the unstruck area farthest from it is the one
+    centered on (4,4). *)
+let test_nuke_hard_farthest _ =
+  List.iter
+    (fun seed ->
+      let board = one_ship () in
+      ignore (Board.strike board 0 0);
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      assert_equal ~msg:(say seed "center")
+        (Some (4, 4))
+        (Strategy.choose_nuke m board))
+    seeds
+
+(** With nothing struck, Hard still picks an area that fits on the board. *)
+let test_nuke_hard_fresh_board _ =
+  List.iter
+    (fun seed ->
+      let board = one_ship () in
+      let m = Strategy.create Strategy.Hard (rng seed) in
+      match Strategy.choose_nuke m board with
+      | Some center -> assert_bool (say seed "fits") (area_free board center)
+      | None -> assert_failure (say seed "expected a nuke"))
+    seeds
+
 (** [tests] is every test of [Strategy]. *)
 let tests =
   "strategy"
@@ -239,6 +405,17 @@ let tests =
          "easy ignores a hit" >:: test_easy_ignores_hit;
          "medium skips struck neighbors" >:: test_medium_skips_struck;
          "medium after sinking" >:: test_medium_after_sinking;
+         "hard hunts on the checkerboard" >:: test_hard_hunts_checkerboard;
+         "hard follows a single hit" >:: test_hard_follows_single_hit;
+         "hard extends a line of hits" >:: test_hard_extends_line;
+         "hard skips a blocked end" >:: test_hard_skips_blocked_end;
+         "hard after sinking" >:: test_hard_after_sinking;
+         "hard beats easy" >:: test_hard_beats_easy;
+         "easy never nukes" >:: test_nuke_easy;
+         "nuke areas are unstruck" >:: test_nuke_area_unstruck;
+         "no nuke when no area is free" >:: test_nuke_none_available;
+         "hard nukes the farthest area" >:: test_nuke_hard_farthest;
+         "hard nukes a fresh board" >:: test_nuke_hard_fresh_board;
          "strikeable cells" >:: test_strikeable;
          "difficulty names" >:: test_difficulty_of_string;
        ]

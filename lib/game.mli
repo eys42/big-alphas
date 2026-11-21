@@ -19,7 +19,8 @@ val create : ?seed:int -> Strategy.difficulty -> t
     with ships of lengths 5, 4, 3, 3, and 2. [seed] allows reproducible
     initialization.
 
-    Treasure chests are present, but power-ups are not yet implemented.
+    Treasure chests are present. Striking a nuke chest gives that player a nuke
+    (see {!nukes}); radar chests do nothing yet.
 
     NOTE (by carissa) Human ships r currently placed automatically. Manual ship
     placement will be added once the CLI supports it. *)
@@ -50,6 +51,36 @@ val human_strike : t -> int -> int -> Board.cell
 val machine_strike : t -> (int * int) * Board.cell
 (** [machine_strike game] performs a computer attack and returns its coordinates
     and result. Updates the turn or winner accordingly.
+
+    Raises [Invalid_argument] if it is not the computer's turn or the game has
+    ended. *)
+
+val nukes : t -> player -> int
+(** [nukes game player] is how many nukes [player] holds. Both players start
+    with none. *)
+
+val human_nuke : t -> int -> int -> ((int * int) * Board.cell) list
+(** [human_nuke game x y] spends one of the human's nukes on the 3x3 area
+    centered on [(x, y)] of the computer's board, as {!Board.nuke} does, and
+    returns what it struck. The blast takes the human's turn. Any nukes found in
+    the area are added to the human's.
+
+    Raises [Invalid_argument], without changing the game, if the human has no
+    nuke, [(x, y)] is out of bounds, every cell of the area has already been
+    struck, it is not the human's turn, or the game has ended. *)
+
+(** What the computer did on its turn. *)
+type machine_move =
+  | Shot of (int * int) * Board.cell
+      (** A single shot at the given coordinates, and its result. *)
+  | Blast of (int * int) * ((int * int) * Board.cell) list
+      (** A nuke centered at the given coordinates, and what it struck. *)
+
+val machine_turn : t -> machine_move
+(** [machine_turn game] plays the computer's turn. If it holds a nuke and its
+    strategy picks an area for it (see {!Strategy.choose_nuke}), it uses the
+    nuke on the human's board; otherwise it fires one shot as {!machine_strike}
+    does. Updates the turn or winner accordingly.
 
     Raises [Invalid_argument] if it is not the computer's turn or the game has
     ended. *)

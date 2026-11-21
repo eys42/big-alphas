@@ -156,6 +156,41 @@ let follow_ups board =
     (all_cells dim)
   |> List.sort_uniq compare
 
+(** [is_hit board (x, y)] is whether [(x, y)] is a visible hit on a ship that
+    has not sunk yet. *)
+let is_hit board (x, y) =
+  in_bounds (Board.dim board) (x, y)
+  &&
+  match Board.cell_at_opponent board x y with
+  | Board.Occupied (_, true) -> true
+  | _ -> false
+
+(** [line_targets board] is every strikeable cell that extends a straight run of
+    two or more visible hits on ships that have not sunk, at either end of the
+    run, without duplicates. *)
+let line_targets board =
+  let rec past_run cell d =
+    if is_hit board cell then past_run (step cell d) d else cell
+  in
+  List.concat_map
+    (fun hit ->
+      List.filter_map
+        (fun d ->
+          if is_hit board (step hit d) then
+            let x, y = past_run (step hit d) d in
+            if strikeable board x y then Some (x, y) else None
+          else None)
+        [ Board.North; Board.East; Board.South; Board.West ])
+    (List.filter (is_hit board) (all_cells (Board.dim board)))
+  |> List.sort_uniq compare
+
+(** [hunt_cells open_cells] is the cells of [open_cells] on the checkerboard
+    pattern, [(x + y)] even, or all of [open_cells] if none of them are. *)
+let hunt_cells open_cells =
+  match List.filter (fun (x, y) -> (x + y) mod 2 = 0) open_cells with
+  | [] -> open_cells
+  | parity -> parity
+
 (** [choose_shot m board] is the cell [m] fires at on [board]; see the interface
     for each difficulty's rule. Raises [Invalid_argument] if nothing is
     strikeable. *)
@@ -169,7 +204,51 @@ let choose_shot m board =
     invalid_arg "Strategy.choose_shot: every cell has been struck";
   match m.difficulty with
   | Easy -> pick m.rng open_cells
-  | Medium | Hard -> (
+  | Medium -> (
       match follow_ups board with
       | [] -> pick m.rng open_cells
       | targets -> pick m.rng targets)
+  | Hard -> (
+      match line_targets board with
+      | _ :: _ as targets -> pick m.rng targets
+      | [] -> (
+          match follow_ups board with
+          | _ :: _ as targets -> pick m.rng targets
+          | [] -> pick m.rng (hunt_cells open_cells)))
+
+(** [nuke_centers board] is every [(x, y)] whose whole 3x3 area is on [board]
+    and has not been struck yet, in row-major order. *)
+let nuke_centers board =
+  List.filter
+    (fun center ->
+      List.for_all (fun (x, y) -> strikeable board x y) (around center))
+    (all_cells (Board.dim board))
+
+(** [dist2 (x1, y1) (x2, y2)] is the squared distance between two cells. *)
+let dist2 (x1, y1) (x2, y2) = ((x1 - x2) * (x1 - x2)) + ((y1 - y2) * (y1 - y2))
+
+(** [farthest board centers] is the cells of the nonempty list [centers] whose
+    distance to the nearest struck cell of [board] is greatest. If nothing has
+    been struck, it is all of [centers]. *)
+let farthest board centers =
+  match
+    List.filter
+      (fun (x, y) -> not (strikeable board x y))
+      (all_cells (Board.dim board))
+  with
+  | [] -> centers
+  | struck ->
+      let gap center =
+        List.fold_left
+          (fun least s -> min least (dist2 center s))
+          max_int struck
+      in
+      let best = List.fold_left (fun most c -> max most (gap c)) 0 centers in
+      List.filter (fun c -> gap c = best) centers
+
+(** [choose_nuke m board] is where [m] would nuke [board]. *)
+let choose_nuke m board =
+  match (m.difficulty, nuke_centers board) with
+  | Easy, _ | _, [] -> None
+  | Medium, centers -> Some (pick m.rng centers)
+  | Hard, centers -> Some (pick m.rng (farthest board centers))

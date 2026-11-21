@@ -48,7 +48,27 @@ val choose_shot : t -> Board.t -> int * int
     - [Medium] fires at a random strikeable cell until it sees a hit on a ship
       that has not sunk. While such a hit has a strikeable orthogonal neighbor,
       it fires at one of those neighbors at random.
-    - [Hard] currently fires exactly like [Medium]. Its own strategy
-      (checkerboard search and directed follow-up) is not implemented yet.
+    - [Hard] searches only the checkerboard cells [(x, y)] with [x + y] even
+      until it sees a hit on a ship that has not sunk. With two or more hits in
+      a row, it fires at the cell at either end of the row, since the ship's
+      direction is known. With a single hit, or when both ends of a row are
+      already struck, it fires at an orthogonal neighbor of a hit. Once no
+      unsunk hit has a strikeable neighbor it resumes the checkerboard search,
+      and when the checkerboard is used up it fires at any strikeable cell.
 
     Raises [Invalid_argument] if no cell of [board] is strikeable. *)
+
+val choose_nuke : t -> Board.t -> (int * int) option
+(** [choose_nuke m board] is [Some (x, y)] if [m], holding a nuke, would blast
+    the 3x3 area centered on [(x, y)] of the opponent's [board], and [None] if
+    it would rather fire a normal shot. The whole area is always on [board] and
+    none of it has been struck yet, so the blast never wastes a cell. It
+    advances [m]'s random state only if it picks a random area. The caller
+    decides when [m] holds a nuke.
+    - [Easy] never uses a nuke, so the result is [None].
+    - [Medium] picks one such area at random.
+    - [Hard] picks the area whose center is farthest from the nearest struck
+      cell, choosing at random among ties.
+
+    If nothing has been struck, every such area ties. If no such area exists,
+    the result is [None] for every difficulty. *)

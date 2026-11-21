@@ -73,3 +73,13 @@ val reveal : t -> int -> int -> cell
     cell contains a ship, and [Treasure_chest powerup] if the cell contains a
     treasure chest. Requires that the cell is not already revealed. Requires
     [0 <= x < dim board] and [0 <= y < dim board]. *)
+
+val nuke : t -> int -> int -> ((int * int) * cell) list
+(** [nuke board x y] blasts the 3x3 area centered on [(x, y)] on the opponent's
+    board. It is the same as calling {!strike} on each of the nine cells in
+    row-major order, except that cells outside the board and cells that were
+    already struck (a hit, a miss, a sunk ship, or a collected chest) are
+    skipped. The result lists each cell that was struck with what {!strike}
+    returned for it, in the order they were struck. It is [[]] and [board] is
+    unchanged if every cell in the area has already been struck. Raises
+    [Invalid_argument] if [(x, y)] itself is out of bounds. *)
