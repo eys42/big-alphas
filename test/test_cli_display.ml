@@ -139,4 +139,119 @@ let display_tests =
          "collected treasure" >:: test_collected_treasure;
        ]
 
-let () = run_test_tt_main display_tests
+(** Tests for CLI gameplay command parsing. *)
+
+let test_attack_command _ =
+  assert_equal (Cli.Attack (3, 5)) (Cli.parse_command "3 5");
+  assert_equal (Cli.Attack (3, 5)) (Cli.parse_command "s 3 5");
+  assert_equal (Cli.Attack (3, 5)) (Cli.parse_command "strike 3 5")
+
+let test_board_command _ =
+  assert_equal Cli.Show_board (Cli.parse_command "b");
+  assert_equal Cli.Show_board (Cli.parse_command "board")
+
+let test_help_command _ =
+  assert_equal Cli.Help (Cli.parse_command "h");
+  assert_equal Cli.Help (Cli.parse_command "help");
+  assert_equal Cli.Help (Cli.parse_command "?")
+
+let test_quit_command _ =
+  assert_equal Cli.Quit (Cli.parse_command "q");
+  assert_equal Cli.Quit (Cli.parse_command "quit")
+
+let test_invalid_command _ =
+  match Cli.parse_command "hello" with
+  | Cli.Invalid _ -> ()
+  | _ -> assert_failure "Expected invalid command"
+
+let test_invalid_coordinates _ =
+  match Cli.parse_command "abc 5" with
+  | Cli.Invalid _ -> ()
+  | _ -> assert_failure "Expected invalid coordinates"
+
+let test_command_whitespace _ =
+  assert_equal (Cli.Attack (3, 5)) (Cli.parse_command "  3   5  ")
+
+(** Tests for manual ship placement. *)
+
+let test_parse_direction _ =
+  assert_equal (Some Board.North) (Cli.parse_direction "n");
+  assert_equal (Some Board.East) (Cli.parse_direction "e");
+  assert_equal (Some Board.South) (Cli.parse_direction "s");
+  assert_equal (Some Board.West) (Cli.parse_direction "w")
+
+let test_parse_invalid_direction _ =
+  assert_equal None (Cli.parse_direction "x");
+  assert_equal None (Cli.parse_direction "")
+
+let test_ship_cells_east _ =
+  let expected = [ (2, 3); (3, 3); (4, 3); (5, 3) ] in
+  assert_equal expected (Cli.ship_cells 2 3 Board.East 4)
+
+let test_ship_cells_west _ =
+  let expected = [ (5, 3); (4, 3); (3, 3) ] in
+  assert_equal expected (Cli.ship_cells 5 3 Board.West 3)
+
+let test_ship_cells_north _ =
+  let expected = [ (2, 5); (2, 4); (2, 3) ] in
+  assert_equal expected (Cli.ship_cells 2 5 Board.North 3)
+
+let test_ship_cells_south _ =
+  let expected = [ (2, 3); (2, 4); (2, 5) ] in
+  assert_equal expected (Cli.ship_cells 2 3 Board.South 3)
+
+let test_valid_placement _ =
+  let occupied = Array.make_matrix 10 10 false in
+  let cells = Cli.ship_cells 2 3 Board.East 4 in
+  assert_bool "Ship should fit on board" (Cli.valid_placement occupied 10 cells)
+
+let test_out_of_bounds_placement _ =
+  let occupied = Array.make_matrix 10 10 false in
+  let cells = Cli.ship_cells 8 3 Board.East 4 in
+  assert_bool "Ship should not extend beyond board"
+    (not (Cli.valid_placement occupied 10 cells))
+
+let test_negative_coordinates _ =
+  let occupied = Array.make_matrix 10 10 false in
+  let cells = Cli.ship_cells 0 0 Board.West 3 in
+  assert_bool "Ship should not have negative coordinates"
+    (not (Cli.valid_placement occupied 10 cells))
+
+let test_overlapping_placement _ =
+  let occupied = Array.make_matrix 10 10 false in
+  occupied.(3).(3) <- true;
+  let cells = Cli.ship_cells 2 3 Board.East 4 in
+  assert_bool "Ships should not overlap"
+    (not (Cli.valid_placement occupied 10 cells))
+
+let test_adjacent_placement _ =
+  let occupied = Array.make_matrix 10 10 false in
+  occupied.(3).(3) <- true;
+  let cells = Cli.ship_cells 4 3 Board.East 3 in
+  assert_bool "Adjacent ships should be allowed"
+    (Cli.valid_placement occupied 10 cells)
+
+let cli_tests =
+  "CLI"
+  >::: [
+         "attack command" >:: test_attack_command;
+         "board command" >:: test_board_command;
+         "help command" >:: test_help_command;
+         "quit command" >:: test_quit_command;
+         "invalid command" >:: test_invalid_command;
+         "invalid coordinates" >:: test_invalid_coordinates;
+         "command whitespace" >:: test_command_whitespace;
+         "parse direction" >:: test_parse_direction;
+         "invalid direction" >:: test_parse_invalid_direction;
+         "ship cells east" >:: test_ship_cells_east;
+         "ship cells west" >:: test_ship_cells_west;
+         "ship cells north" >:: test_ship_cells_north;
+         "ship cells south" >:: test_ship_cells_south;
+         "valid placement" >:: test_valid_placement;
+         "out of bounds" >:: test_out_of_bounds_placement;
+         "negative coordinates" >:: test_negative_coordinates;
+         "overlapping placement" >:: test_overlapping_placement;
+         "adjacent placement" >:: test_adjacent_placement;
+       ]
+
+let () = run_test_tt_main ("Battleship Tests" >::: [ display_tests; cli_tests ])
