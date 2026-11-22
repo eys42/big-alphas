@@ -207,12 +207,12 @@ let read_ship_placements size lengths =
 
 
 (*
-(* COMMENT (by Carissa): While testing the ship placement after implementing
+(* COMMENT (by Carissa): While testing the manual ship placement after implementing
  game.ml, I added onto your read_ship_placements function to display the grid 
  after each ship is placed since made easier to test. I pasted the updated functions below 
 
  I was wondering if we could maybe incorporate this into Cli since could  
-  possibly also make the game more user-friendly? *)
+possibly also make the game more user-friendly???? nw at all not *)
 
 
 (* Show ship placements after each ship is added. This is temporary until

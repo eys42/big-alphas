@@ -162,7 +162,9 @@ let machine_turn game =
       let shot, result = machine_strike game in
       Shot (shot, result)
 
-(** Convert the result of one attack to a message for the CLI. *)
+(** Convert the result of one attack to a message for the CLI. 
+
+    NOTE (by Carissa): move to Display.ml???*)
 let describe_attack = function
   | Board.Miss -> "Miss!"
   | Board.Occupied (_, true) -> "Hit!"
@@ -172,11 +174,19 @@ let describe_attack = function
       "Found a radar chest (power-ups not active yet)."
   | _ -> "Attack completed."
 
-(** What the player asked to do on their turn. *)
+(** What the player asked to do on their turn. 
+
+    NOTE (by Carissa): move to Cli.ml??? represents what the user requested 
+    rather than the result of a game action.
+  *)
 type action =
   | Fire of int * int
   | Nuke_at of int * int
 
+(** Display both the human and computer boards. 
+
+    NOTE (by Carissa): move to Display.ml??? Unless can delete this because 
+    it's just a wrapper around Display.print_board *)
 let show_boards game =
   print_endline "\nYour board:";
   Display.print_board game.human_board true;
@@ -185,7 +195,9 @@ let show_boards game =
 
 (** [prompt_attack game] reads an attack in column/row order, or
     [nuke COLUMN ROW] to spend a nuke. Uses CLI for normal commands and help.
-    [None] means the user typed q/quit or closed standard input. *)
+    [None] means the user typed q/quit or closed standard input. *
+    
+    NOTE (by Carissa): lowkey a lot of this falls under to cli.ml *)
 let rec prompt_attack game =
   let board = game.computer_board in
   let nukes = game.human_nukes in
@@ -205,7 +217,8 @@ let rec prompt_attack game =
         |> List.filter (fun word -> word <> "")
       in
       match words with
-      (* CLI does not parse nuke commands yet, so handle those here. *)
+      (* NOTE (by Carissa): CLI doesn't parse nuke commands yet; 
+      tempoarily handling it here. *)
       | [ "nuke"; col; row ] -> (
           match (int_of_string_opt col, int_of_string_opt row) with
           | Some x, Some y when nukes > 0 -> Some (Nuke_at (x, y))
@@ -237,7 +250,8 @@ let rec prompt_attack game =
               print_endline message;
               prompt_attack game))
 
-(** [describe_blast results] is one line per cell that a nuke struck. *)
+(** [describe_blast results] is one line per cell that a nuke struck.
+    NOTE (by Carissa): move to Display.ml???*)
 let describe_blast results =
   List.iter
     (fun ((x, y), cell) ->
