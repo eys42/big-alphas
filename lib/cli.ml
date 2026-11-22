@@ -203,3 +203,95 @@ let read_ship_placements size lengths =
   in
 
   place lengths []
+
+
+
+(*
+(* COMMENT (by Carissa): While testing the ship placement after implementing
+ game.ml, I added onto your read_ship_placements function to display the grid 
+ after each ship is placed since made easier to test. I pasted the updated functions below 
+
+ I was wondering if we could maybe incorporate this into Cli since could  
+  possibly also make the game more user-friendly? *)
+
+
+(* Show ship placements after each ship is added. This is temporary until
+   ship placement and its display are fully handled by Cli/Display. *)
+let show_placement_grid occupied =
+  let size = Array.length occupied in
+  print_endline "\nYour ship placements:";
+  Printf.printf "    ";
+  for col = 0 to size - 1 do
+    Printf.printf "%3d" col
+  done;
+  print_newline ();
+  for row = 0 to size - 1 do
+    Printf.printf "%3d " row;
+    for col = 0 to size - 1 do
+      Printf.printf "%3s" (if occupied.(row).(col) then "S" else ".")
+    done;
+    print_newline ()
+  done
+
+(* Temporarily handles placement prompts here to display the grid after each
+   ship. Uses the existing Cli helpers for directions and placement checks. *)
+let read_ship_placements_with_preview size lengths =
+  let occupied = Array.make_matrix size size false in
+  print_endline "\nManual ship placement";
+  Printf.printf "Board coordinates range from 0 to %d.\n" (size - 1);
+  show_placement_grid occupied;
+  let rec place remaining placed =
+    match remaining with
+    | [] ->
+        print_endline "\nAll ships placed successfully!";
+        print_endline "\nPress Enter to start the game!";
+        flush stdout;
+        (match read_line () with
+        | exception End_of_file -> None
+    | _ -> Some (List.rev placed))
+        | length :: rest ->
+        print_endline "Enter: COLUMN ROW DIRECTION (e.g., 3 5 e)";
+        print_endline "Directions: n (north), e (east), s (south), w (west)";
+        print_endline "Enter q to quit.";
+        Printf.printf "\nPlace ship of length %d: " length;
+        flush stdout;
+        (match read_line () with
+        | exception End_of_file -> None
+        | input ->
+            let words =
+              String.lowercase_ascii (String.trim input)
+              |> String.split_on_char ' '
+              |> List.filter (fun word -> word <> "")
+            in
+            match words with
+            | [ "q" ] | [ "quit" ] -> None
+            | [ col; row; direction ] -> (
+                match
+                  ( int_of_string_opt col,
+                    int_of_string_opt row,
+                    Cli.parse_direction direction )
+                with
+                | Some x, Some y, Some d ->
+                    let cells = Cli.ship_cells x y d length in
+                    if Cli.valid_placement occupied size cells then (
+                      List.iter
+                        (fun (col, row) -> occupied.(row).(col) <- true)
+                        cells;
+                      (* Match the coordinate convention used by Cli. *)
+                      let ship = Board.Ship.create (y, x) d length in
+                      print_endline "Ship placed successfully!";
+                      show_placement_grid occupied;
+                      place rest (ship :: placed))
+                    else (
+                      print_endline
+                        "Invalid placement: ship is out of bounds or overlaps another ship.";
+                      place remaining placed)
+                | _ ->
+                    print_endline "Invalid input. Use COLUMN ROW DIRECTION (e.g., 3 5 e).";
+                    place remaining placed)
+            | _ ->
+                print_endline "Invalid input. Use COLUMN ROW DIRECTION (e.g., 3 5 e).";
+                place remaining placed)
+  in
+  place lengths []
+*)

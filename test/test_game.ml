@@ -339,6 +339,32 @@ let test_full_game_machine_turn _ =
         [ 1; 2; 3; 4; 5 ])
     [ Strategy.Medium; Strategy.Hard ]
 
+(* TEST: Manually placed human ships are used to initialize the board. *)
+let test_manual_ship_placement _ =
+  let ships =
+    [
+      Board.Ship.create (0, 0) Board.East 5;
+      Board.Ship.create (2, 0) Board.East 4;
+      Board.Ship.create (4, 0) Board.East 3;
+      Board.Ship.create (6, 0) Board.East 3;
+      Board.Ship.create (8, 0) Board.East 2;
+    ]
+  in
+  let game = Game.create ~seed:42 ~human_ships:ships Strategy.Easy in
+  let board = Game.human_board game in
+
+  List.iter
+    (fun (row, length) ->
+      for col = 0 to length - 1 do
+        match Board.cell_at_own board row col with
+        | Board.Occupied (_, false) -> ()
+        | _ -> assert_failure "Manually placed ship is missing"
+      done)
+    [ (0, 5); (2, 4); (4, 3); (6, 3); (8, 2) ];
+
+  assert_equal Game.Human (Game.current_player game);
+  assert_equal None (Game.winner game)
+
 let suite =
   "Game rules"
   >::: [
@@ -364,6 +390,7 @@ let suite =
          "computer shot without a nuke" >:: test_machine_turn_shot;
          "computer cannot go out of turn" >:: test_machine_turn_wrong_turn;
          "complete game with nukes" >:: test_full_game_machine_turn;
+         "testing manual ship placement" >:: test_manual_ship_placement;
        ]
 
 let () = run_test_tt_main suite

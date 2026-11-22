@@ -1,8 +1,7 @@
 (** Game rules and turn management for single-player Battleship.
 
-    NOTE (by carissa): Power-ups, golden-ship special rules, and multiplayer r
-    not active yet; Saving this for post MS2.... Also waiting for CLI
-    implementation for initiating human-made ship placement stuff*)
+    NOTE (by carissa): Nuke power-ups are active, but radar, golden-ship special
+    rules, and multiplayer r not active yet. *)
 
 type player =
   | Human
@@ -12,18 +11,18 @@ type t
 (** The state of one game (includes the two boards, the computer strategy, the
     current turn, and the winner if any). *)
 
-val create : ?seed:int -> Strategy.difficulty -> t
-(** [create ?seed difficulty] initializes a single-player game with randomly
-    placed ships, with the human playing first. [difficulty] determines the
-    computer's ship placement and attack strategy. The default board is 10x10
-    with ships of lengths 5, 4, 3, 3, and 2. [seed] allows reproducible
-    initialization.
+val create :
+  ?seed:int -> ?human_ships:Board.Ship.s list -> Strategy.difficulty -> t
+(** [create ?seed ?human_ships difficulty] initializes a single-player game,
+    with the human playing first. [difficulty] determines the computer's ship
+    placement and attack strategy. The default board is 10x10 with ships of
+    lengths 5, 4, 3, 3, and 2. [seed] allows reproducible initialization.
 
     Treasure chests are present. Striking a nuke chest gives that player a nuke
     (see {!nukes}); radar chests do nothing yet.
 
-    NOTE (by carissa) Human ships r currently placed automatically. Manual ship
-    placement will be added once the CLI supports it. *)
+    NOTE (by carissa) Human ships r automatically placed unless [human_ships] is
+    supplied. [run] now gets manual placements from the CLI. *)
 
 val human_board : t -> Board.t
 (** [human_board game] returns the human's board*)
@@ -87,4 +86,5 @@ val machine_turn : t -> machine_move
 
 val run : Cli.settings -> unit
 (** [run settings] starts the interactive single-player game using the given
-    settings. NOTE: Two-player gameplay hasn't yet been implemented. *)
+    settings and asks the human to place ships through the CLI. NOTE: Two-player
+    gameplay hasn't yet been implemented. *)

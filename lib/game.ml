@@ -1,8 +1,7 @@
 (** Game rules and turn management for single-player Battleship.
 
-    NOTE (by carissa): Power-ups, golden-ship special rules, and multiplayer r
-    not active yet; Saving this for post MS2.... Also waiting for CLI
-    implementation for initiating human-made ship placement stuff*)
+    NOTE (by carissa): Nuke power-ups are active, but radar, golden-ship special
+    rules, and multiplayer r not active yet. *)
 
 type player =
   | Human
@@ -14,15 +13,15 @@ type t = {
   machine : Strategy.t;
   mutable turn : player;
   mutable winner : player option;
-  mutable human_nukes : int;  (**ADDED BY KANAT TO IMRPOVE PLAYER NUKES.*)
-  mutable computer_nukes : int;  (**ADDED BY KANAT TO IMRPOVE PLAYER NUKES.*)
+  mutable human_nukes : int;
+  mutable computer_nukes : int;
 }
 
 (* Provisional board settings. *)
 let board_size = 10
 let ship_lengths = [ 5; 4; 3; 3; 2 ]
 
-let create ?seed difficulty =
+let create ?seed ?human_ships difficulty =
   (* A random number generator for ship placement, treasure chests, and the
      computer's strategy *)
   let rng =
@@ -33,9 +32,11 @@ let create ?seed difficulty =
   (*Ship placements
 
     NOTE (by carissa) Human ship placement is random (based on Strategy.Easy's
-    auto placement until manual placement is implemented.*)
+    auto placement) unless ships are provided by the CLI. *)
   let human_ships =
-    Strategy.place_ships Strategy.Easy rng board_size ship_lengths
+    match human_ships with
+    | Some ships -> ships
+    | None -> Strategy.place_ships Strategy.Easy rng board_size ship_lengths
   in
   let computer_ships =
     Strategy.place_ships difficulty rng board_size ship_lengths
@@ -176,45 +177,65 @@ type action =
   | Fire of int * int
   | Nuke_at of int * int
 
-(** [prompt_attack board nukes] reads an attack in column/row order to match
-    Display's column labels, or [nuke COLUMN ROW] to spend one of the [nukes]
-    the player holds. [None] means the user typed q/quit or closed standard
-    input. *)
-let rec prompt_attack board nukes =
+let show_boards game =
+  print_endline "\nYour board:";
+  Display.print_board game.human_board true;
+  print_endline "\nComputer's board (ships hidden until hit):";
+  Display.print_board game.computer_board false
+
+(** [prompt_attack game] reads an attack in column/row order, or
+    [nuke COLUMN ROW] to spend a nuke. Uses CLI for normal commands and help.
+    [None] means the user typed q/quit or closed standard input. *)
+let rec prompt_attack game =
+  let board = game.computer_board in
+  let nukes = game.human_nukes in
   if nukes > 0 then
     Printf.printf "\nYou have %d nuke(s); type 'nuke COLUMN ROW' to use one."
       nukes;
-  Printf.printf "\nEnter COLUMN ROW (0-%d), or q to quit: " (Board.dim board - 1);
+  Printf.printf
+    "\nPick where to strike! Enter COLUMN ROW (0-%d), or h for help: "
+    (Board.dim board - 1);
   flush stdout;
   match read_line () with
   | exception End_of_file -> None
   | input -> (
       let input = String.trim input in
-      if List.mem (String.lowercase_ascii input) [ "q"; "quit" ] then None
-      else
-        let words =
-          String.split_on_char ' ' input |> List.filter (fun word -> word <> "")
-        in
-        match List.map String.lowercase_ascii words with
-        | [ "nuke"; col; row ] -> (
-            match (int_of_string_opt col, int_of_string_opt row) with
-            | Some x, Some y when nukes > 0 -> Some (Nuke_at (x, y))
-            | _, _ when nukes = 0 ->
-                print_endline "You have no nukes.";
-                prompt_attack board nukes
-            | _ ->
-                print_endline "Please enter two numbers after nuke.";
-                prompt_attack board nukes)
-        | [ col; row ] -> (
-            match (int_of_string_opt col, int_of_string_opt row) with
-            | Some x, Some y when Strategy.strikeable board x y ->
-                Some (Fire (x, y))
-            | _ ->
-                print_endline "Invalid or previously attacked coordinate.";
-                prompt_attack board nukes)
-        | _ ->
-            print_endline "Please enter two numbers separated by a space.";
-            prompt_attack board nukes)
+      let words =
+        String.split_on_char ' ' (String.lowercase_ascii input)
+        |> List.filter (fun word -> word <> "")
+      in
+      match words with
+      (* CLI does not parse nuke commands yet, so handle those here. *)
+      | [ "nuke"; col; row ] -> (
+          match (int_of_string_opt col, int_of_string_opt row) with
+          | Some x, Some y when nukes > 0 -> Some (Nuke_at (x, y))
+          | _, _ when nukes = 0 ->
+              print_endline "You have no nukes.";
+              prompt_attack game
+          | _ ->
+              print_endline "Please enter two numbers after nuke.";
+              prompt_attack game)
+      | "nuke" :: _ ->
+          print_endline "Use: nuke COLUMN ROW";
+          prompt_attack game
+      | _ -> (
+          match Cli.parse_command input with
+          | Cli.Attack (x, y) when Strategy.strikeable board x y ->
+              Some (Fire (x, y))
+          | Cli.Attack _ ->
+              print_endline "Invalid or previously attacked coordinate.";
+              prompt_attack game
+          | Cli.Show_board ->
+              show_boards game;
+              prompt_attack game
+          | Cli.Help ->
+              Cli.print_help ();
+              if nukes > 0 then print_endline "  nuke COLUMN ROW  Use a nuke";
+              prompt_attack game
+          | Cli.Quit -> None
+          | Cli.Invalid message ->
+              print_endline message;
+              prompt_attack game))
 
 (** [describe_blast results] is one line per cell that a nuke struck. *)
 let describe_blast results =
@@ -222,12 +243,6 @@ let describe_blast results =
     (fun ((x, y), cell) ->
       Printf.printf "  (%d, %d): %s\n" x y (describe_attack cell))
     results
-
-let show_boards game =
-  print_endline "\nYour board:";
-  Display.print_board game.human_board true;
-  print_endline "\nComputer's board (ships hidden until hit):";
-  Display.print_board game.computer_board false
 
 (** Game loop for single-player Battleship. One loop iteration processes a turn;
     recursion stops after victory or q. *)
@@ -243,7 +258,7 @@ let rec play game =
       match game.turn with
       | Human -> (
           show_boards game;
-          match prompt_attack game.computer_board game.human_nukes with
+          match prompt_attack game with
           | None -> print_endline "Game exited."
           | Some (Fire (x, y)) ->
               let result = human_strike game x y in
@@ -272,12 +287,14 @@ let run (settings : Cli.settings) =
   match settings.players with
   | 1 -> (
       match Strategy.difficulty_of_string settings.difficulty with
-      | Some difficulty ->
+      | Some difficulty -> (
           print_endline "Welcome to Battleship!";
           print_endline
-            "Ships are placed automatically. Strike a nuke chest to win a \
-             nuke; radar and golden ships are not active yet.";
-          play (create difficulty)
+            "Place your ships first. Strike a nuke chest to win a nuke; radar \
+             and golden ships are not active yet.";
+          match Cli.read_ship_placements board_size ship_lengths with
+          | Some ships -> play (create ~human_ships:ships difficulty)
+          | None -> print_endline "Game exited.")
       | None -> invalid_arg "Invalid computer difficulty")
   | 2 ->
       (* Temporary placeholder for multiplayer *)
