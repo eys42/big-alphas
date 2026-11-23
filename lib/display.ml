@@ -15,8 +15,8 @@ let print_board board own =
     Printf.printf "%3d " y;
     for x = 0 to size - 1 do
       let cell =
-        if own then Board.cell_at_own board x y
-        else Board.cell_at_opponent board x y
+        if own then Board.cell_at_own board y x
+        else Board.cell_at_opponent board y x
       in
       let symbol =
         match cell with
