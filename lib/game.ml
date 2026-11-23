@@ -67,13 +67,13 @@ let winner game = game.winner
     sunk ship is still afloat. *)
 let has_afloat_ship board =
   let size = Board.dim board in
-  let rec search x y =
-    if x >= size then false
-    else if y >= size then search (x + 1) 0
+  let rec search row col =
+    if row >= size then false
+    else if col >= size then search (row + 1) 0
     else
-      match Board.cell_at_own board x y with
+      match Board.cell_at_own board row col with
       | Board.Occupied _ | Board.Revealed (Some _) -> true
-      | _ -> search x (y + 1)
+      | _ -> search (row + 1) (col + 1)
   in
   search 0 0
 
@@ -106,44 +106,46 @@ let nukes_found cells =
        cells)
 
 (** [add_nukes game player n] gives [player] [n] more nukes. *)
+(** [add_nukes game player n] gives [player] [n] more nukes. *)
 let add_nukes game player n =
   match player with
   | Human -> game.human_nukes <- game.human_nukes + n
   | Computer -> game.computer_nukes <- game.computer_nukes + n
 
-let human_strike game x y =
+let human_strike game row col =
   require_turn game Human;
-  if not (Strategy.strikeable game.computer_board x y) then
+  if not (Strategy.strikeable game.computer_board row col) then
     invalid_arg "Invalid or previously attacked coordinate";
-  let result = Board.strike game.computer_board x y in
+  let result = Board.strike game.computer_board row col in
   add_nukes game Human (nukes_found [ result ]);
   finish_turn game Human game.computer_board;
   result
 
 let machine_strike game =
   require_turn game Computer;
-  let x, y = Strategy.choose_shot game.machine game.human_board in
-  let result = Board.strike game.human_board x y in
+  let row, col = Strategy.choose_shot game.machine game.human_board in
+  let result = Board.strike game.human_board row col in
   add_nukes game Computer (nukes_found [ result ]);
   finish_turn game Computer game.human_board;
-  ((x, y), result)
+  ((row, col), result)
 
-(** [blast game attacker target_board x y] spends one of [attacker]'s nukes on
-    the 3x3 area centered on [(x, y)] of [target_board], gives [attacker] any
-    nukes found in the area, and ends the turn. Requires that [attacker] has a
-    nuke. Raises [Invalid_argument], without changing the game, if [(x, y)] is
-    out of bounds or the whole area has already been struck. *)
-let blast game attacker target_board x y =
-  let results = Board.nuke target_board x y in
+(** [blast game attacker target_board row col] spends one of [attacker]'s
+    nukes on the 3x3 area centered on [(row, col)] of [target_board],
+    gives [attacker] any nukes found in the area, and ends the turn.
+    Requires that [attacker] has a nuke. Raises [Invalid_argument],
+    without changing the game, if [(row, col)] is out of bounds or
+    the whole area has already been struck. *)
+let blast game attacker target_board row col =
+  let results = Board.nuke target_board row col in
   if results = [] then invalid_arg "Nothing left to nuke in that area";
   add_nukes game attacker (nukes_found (List.map snd results) - 1);
   finish_turn game attacker target_board;
   results
 
-let human_nuke game x y =
+let human_nuke game row col =
   require_turn game Human;
   if game.human_nukes < 1 then invalid_arg "No nukes available";
-  blast game Human game.computer_board x y
+  blast game Human game.computer_board row col
 
 type machine_move =
   | Shot of (int * int) * Board.cell
@@ -157,7 +159,7 @@ let machine_turn game =
     else None
   in
   match target with
-  | Some (x, y) -> Blast ((x, y), blast game Computer game.human_board x y)
+  | Some (row, col) -> Blast ((row, col), blast game Computer game.human_board row col)
   | None ->
       let shot, result = machine_strike game in
       Shot (shot, result)
@@ -171,7 +173,7 @@ let describe_attack = function
   | Board.Sunk _ -> "Ship sunk!"
   | Board.Treasure_chest (Board.Nuke, _) -> "Found a nuke chest!"
   | Board.Treasure_chest (Board.Radar, _) ->
-      "Found a radar chest (power-ups not active yet)."
+      "Found a radar chest (radar power-up not active yet)."
   | _ -> "Attack completed."
 
 (** What the player asked to do on their turn.
@@ -192,8 +194,8 @@ let show_boards game =
   print_endline "\nComputer's board (ships hidden until hit):";
   Display.print_board game.computer_board false
 
-(** [prompt_attack game] reads an attack in column/row order, or
-    [nuke COLUMN ROW] to spend a nuke. Uses CLI for normal commands and help.
+(** [prompt_attack game] reads an attack in row/column order, or
+    [nuke ROW COL] to spend a nuke. Uses CLI for normal commands and help.
     [None] means the user typed q/quit or closed standard input. *
 
     NOTE (by Carissa): lowkey a lot of this falls under to cli.ml *)
@@ -201,10 +203,10 @@ let rec prompt_attack game =
   let board = game.computer_board in
   let nukes = game.human_nukes in
   if nukes > 0 then
-    Printf.printf "\nYou have %d nuke(s); type 'nuke COLUMN ROW' to use one."
+    Printf.printf "\nYou have %d nuke(s); type 'nuke ROW COL' to use one."
       nukes;
   Printf.printf
-    "\nPick where to strike! Enter COLUMN ROW (0-%d), or h for help: "
+    "\nPick where to strike! Enter ROW COL (0-%d), or h for help: "
     (Board.dim board - 1);
   flush stdout;
   match read_line () with
@@ -218,9 +220,9 @@ let rec prompt_attack game =
       match words with
       (* NOTE (by Carissa): CLI doesn't parse nuke commands yet; tempoarily
          handling it here. *)
-      | [ "nuke"; col; row ] -> (
-          match (int_of_string_opt col, int_of_string_opt row) with
-          | Some x, Some y when nukes > 0 -> Some (Nuke_at (x, y))
+      | [ "nuke"; row; col ] -> (
+          match (int_of_string_opt row, int_of_string_opt col) with
+          | Some row, Some col when nukes > 0 -> Some (Nuke_at (row, col))
           | _, _ when nukes = 0 ->
               print_endline "You have no nukes.";
               prompt_attack game
@@ -228,12 +230,12 @@ let rec prompt_attack game =
               print_endline "Please enter two numbers after nuke.";
               prompt_attack game)
       | "nuke" :: _ ->
-          print_endline "Use: nuke COLUMN ROW";
+          print_endline "Use: nuke ROW COL";
           prompt_attack game
       | _ -> (
           match Cli.parse_command input with
-          | Cli.Attack (x, y) when Strategy.strikeable board x y ->
-              Some (Fire (x, y))
+          | Cli.Attack (row, col) when Strategy.strikeable board row col ->
+              Some (Fire (row, col))
           | Cli.Attack _ ->
               print_endline "Invalid or previously attacked coordinate.";
               prompt_attack game
@@ -242,7 +244,7 @@ let rec prompt_attack game =
               prompt_attack game
           | Cli.Help ->
               Cli.print_help ();
-              if nukes > 0 then print_endline "  nuke COLUMN ROW  Use a nuke";
+              if nukes > 0 then print_endline "  nuke ROW COL  Use a nuke";
               prompt_attack game
           | Cli.Quit -> None
           | Cli.Invalid message ->
@@ -253,8 +255,8 @@ let rec prompt_attack game =
     Carissa): move to Display.ml???*)
 let describe_blast results =
   List.iter
-    (fun ((x, y), cell) ->
-      Printf.printf "  (%d, %d): %s\n" x y (describe_attack cell))
+    (fun ((row, col), cell) ->
+      Printf.printf "  (%d, %d): %s\n" row col (describe_attack cell))
     results
 
 (** Game loop for single-player Battleship. One loop iteration processes a turn;
@@ -273,26 +275,26 @@ let rec play game =
           show_boards game;
           match prompt_attack game with
           | None -> print_endline "Game exited."
-          | Some (Fire (x, y)) ->
-              let result = human_strike game x y in
-              Printf.printf "You attacked (%d, %d): %s\n" x y
+          | Some (Fire (row, col)) ->
+              let result = human_strike game row col in
+              Printf.printf "You attacked (%d, %d): %s\n" row col
                 (describe_attack result);
               play game
-          | Some (Nuke_at (x, y)) ->
-              (match human_nuke game x y with
+          | Some (Nuke_at (row, col)) ->
+              (match human_nuke game row col with
               | results ->
-                  Printf.printf "You nuked the area around (%d, %d):\n" x y;
+                  Printf.printf "You nuked the area around (%d, %d):\n" row col;
                   describe_blast results
               | exception Invalid_argument msg -> print_endline msg);
               play game)
       | Computer -> (
           match machine_turn game with
-          | Shot ((x, y), result) ->
-              Printf.printf "Computer attacked (%d, %d): %s\n" x y
+          | Shot ((row, col), result) ->
+              Printf.printf "Computer attacked (%d, %d): %s\n" row col
                 (describe_attack result);
               play game
-          | Blast ((x, y), results) ->
-              Printf.printf "Computer nuked the area around (%d, %d):\n" x y;
+          | Blast ((row, col), results) ->
+              Printf.printf "Computer nuked the area around (%d, %d):\n" row col;
               describe_blast results;
               play game))
 
