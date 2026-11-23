@@ -41,8 +41,8 @@ val winner : t -> player option
     neither player has won. *)
 
 val human_strike : t -> int -> int -> Board.cell
-(** [human_strike game x y] attacks the computer at [(x, y)] and returns the
-    result. It also updates the turn or winner accordingly.
+(** [human_strike game row col] attacks the computer at [(row, col)] and returns
+    the result. It also updates the turn or winner accordingly.
 
     Raises [Invalid_argument] for invalid/repeated attacks, wrong turns, or
     finished games. *)
@@ -59,13 +59,13 @@ val nukes : t -> player -> int
     with none. *)
 
 val human_nuke : t -> int -> int -> ((int * int) * Board.cell) list
-(** [human_nuke game x y] spends one of the human's nukes on the 3x3 area
-    centered on [(x, y)] of the computer's board, as {!Board.nuke} does, and
+(** [human_nuke game row col] spends one of the human's nukes on the 3x3 area
+    centered on [(row, col)] of the computer's board, as {!Board.nuke} does, and
     returns what it struck. The blast takes the human's turn. Any nukes found in
     the area are added to the human's.
 
     Raises [Invalid_argument], without changing the game, if the human has no
-    nuke, [(x, y)] is out of bounds, every cell of the area has already been
+    nuke, [(row, col)] is out of bounds, every cell of the area has already been
     struck, it is not the human's turn, or the game has ended. *)
 
 (** What the computer did on its turn. *)

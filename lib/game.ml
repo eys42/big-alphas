@@ -73,7 +73,7 @@ let has_afloat_ship board =
     else
       match Board.cell_at_own board row col with
       | Board.Occupied _ | Board.Revealed (Some _) -> true
-      | _ -> search (row + 1) (col + 1)
+      | _ -> search row (col + 1)
   in
   search 0 0
 
@@ -105,7 +105,6 @@ let nukes_found cells =
          | _ -> false)
        cells)
 
-(** [add_nukes game player n] gives [player] [n] more nukes. *)
 (** [add_nukes game player n] gives [player] [n] more nukes. *)
 let add_nukes game player n =
   match player with
