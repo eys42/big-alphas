@@ -51,6 +51,15 @@ let test_own_board_shows_unhit_ship _ =
        true
      with Not_found -> false)
 
+let test_west_ship_displays_on_same_row _ =
+  let ship = Board.Ship.create (1, 1) Board.West 2 in
+  let board = Board.init 5 [ ship ] 17 in
+  let output = capture_output (fun () -> Display.print_board board true) in
+  let rows = String.split_on_char '\n' output in
+  let row = List.nth rows 2 in
+  assert_equal 'S' row.[6];
+  assert_equal 'S' row.[9]
+
 let test_opponent_board_hides_unhit_ship _ =
   let board, _ = make_board () in
   let output = capture_output (fun () -> Display.print_board board false) in
@@ -129,6 +138,7 @@ let display_tests =
   >::: [
          "prints coordinates" >:: test_prints_coordinates;
          "own board shows unhit ship" >:: test_own_board_shows_unhit_ship;
+         "west ship displays on same row" >:: test_west_ship_displays_on_same_row;
          "opponent board hides unhit ship"
          >:: test_opponent_board_hides_unhit_ship;
          "hit ship" >:: test_hit_ship;
@@ -185,19 +195,19 @@ let test_parse_invalid_direction _ =
   assert_equal None (Cli.parse_direction "")
 
 let test_ship_cells_east _ =
-  let expected = [ (2, 3); (3, 3); (4, 3); (5, 3) ] in
+  let expected = [ (2, 3); (2, 4); (2, 5); (2, 6) ] in
   assert_equal expected (Cli.ship_cells 2 3 Board.East 4)
 
 let test_ship_cells_west _ =
-  let expected = [ (5, 3); (4, 3); (3, 3) ] in
+  let expected = [ (5, 3); (5, 2); (5, 1) ] in
   assert_equal expected (Cli.ship_cells 5 3 Board.West 3)
 
 let test_ship_cells_north _ =
-  let expected = [ (2, 5); (2, 4); (2, 3) ] in
+  let expected = [ (2, 5); (1, 5); (0, 5) ] in
   assert_equal expected (Cli.ship_cells 2 5 Board.North 3)
 
 let test_ship_cells_south _ =
-  let expected = [ (2, 3); (2, 4); (2, 5) ] in
+  let expected = [ (2, 3); (3, 3); (4, 3) ] in
   assert_equal expected (Cli.ship_cells 2 3 Board.South 3)
 
 let test_valid_placement _ =
@@ -207,7 +217,7 @@ let test_valid_placement _ =
 
 let test_out_of_bounds_placement _ =
   let occupied = Array.make_matrix 10 10 false in
-  let cells = Cli.ship_cells 8 3 Board.East 4 in
+  let cells = Cli.ship_cells 3 8 Board.East 4 in
   assert_bool "Ship should not extend beyond board"
     (not (Cli.valid_placement occupied 10 cells))
 
@@ -220,14 +230,14 @@ let test_negative_coordinates _ =
 let test_overlapping_placement _ =
   let occupied = Array.make_matrix 10 10 false in
   occupied.(3).(3) <- true;
-  let cells = Cli.ship_cells 2 3 Board.East 4 in
+  let cells = Cli.ship_cells 3 2 Board.East 4 in
   assert_bool "Ships should not overlap"
     (not (Cli.valid_placement occupied 10 cells))
 
 let test_adjacent_placement _ =
   let occupied = Array.make_matrix 10 10 false in
   occupied.(3).(3) <- true;
-  let cells = Cli.ship_cells 4 3 Board.East 3 in
+  let cells = Cli.ship_cells 3 4 Board.East 3 in
   assert_bool "Adjacent ships should be allowed"
     (Cli.valid_placement occupied 10 cells)
 

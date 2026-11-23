@@ -38,8 +38,8 @@ val parse_direction : string -> Board.direction option
     Returns [None] if the direction is invalid. *)
 
 val ship_cells : int -> int -> Board.direction -> int -> (int * int) list
-(** [ship_cells col row direction length] returns the coordinates occupied by a
-    ship with the given starting position, direction, and length. *)
+(** [ship_cells row col direction length] returns the (row, column) coordinates
+    occupied by a ship with the given starting position, direction, and length. *)
 
 val valid_placement : bool array array -> int -> (int * int) list -> bool
 (** [valid_placement occupied size cells] checks whether a ship fits within the

@@ -111,21 +111,21 @@ let parse_direction input =
   | "w" | "west" -> Some Board.West
   | _ -> None
 
-(** [ship_cells col row direction length] returns the coordinates occupied by a
-    ship, starting at [(col, row)]. *)
-let ship_cells col row direction length =
+(** [ship_cells row col direction length] returns the coordinates occupied by a
+    ship, starting at [(row, col)]. *)
+let ship_cells row col direction length =
   List.init length (fun i ->
       match direction with
-      | Board.North -> (col, row - i)
-      | Board.East -> (col + i, row)
-      | Board.South -> (col, row + i)
-      | Board.West -> (col - i, row))
+      | Board.North -> (row - i, col)
+      | Board.East -> (row, col + i)
+      | Board.South -> (row + i, col)
+      | Board.West -> (row, col - i))
 
 (** [valid_placement occupied size cells] checks whether all ship cells are
     within the board and do not overlap previously placed ships. *)
 let valid_placement occupied size cells =
   List.for_all
-    (fun (col, row) ->
+    (fun (row, col) ->
       col >= 0 && col < size && row >= 0 && row < size
       && not occupied.(row).(col))
     cells
@@ -138,10 +138,10 @@ let read_ship_placements size lengths =
 
   print_endline "\nManual ship placement";
   Printf.printf "Board coordinates range from 0 to %d.\n" (size - 1);
-  print_endline "Enter: COLUMN ROW DIRECTION";
+  print_endline "Enter: ROW COLUMN DIRECTION";
   print_endline "Directions: n (north), e (east), s (south), w (west)";
   print_endline
-    "Example: 3 5 e. This will place a ship starting at (3,5) facing East";
+    "Example: 3 5 e. This places a ship at row 3, column 5, facing East.";
   print_endline "Enter q to quit.";
 
   let rec place remaining placed =
@@ -170,20 +170,20 @@ let read_ship_placements size lengths =
 
             match words with
             | [ "q" ] | [ "quit" ] -> None
-            | [ col; row; direction ] -> (
+            | [ row; col; direction ] -> (
                 match
-                  ( int_of_string_opt col,
-                    int_of_string_opt row,
+                  ( int_of_string_opt row,
+                    int_of_string_opt col,
                     parse_direction direction )
                 with
-                | Some x, Some y, Some d ->
-                    let cells = ship_cells x y d length in
+                | Some row, Some col, Some d ->
+                    let cells = ship_cells row col d length in
                     if valid_placement occupied size cells then (
                       List.iter
-                        (fun (col, row) -> occupied.(row).(col) <- true)
+                        (fun (row, col) -> occupied.(row).(col) <- true)
                         cells;
 
-                      let ship = Board.Ship.create (y, x) d length in
+                      let ship = Board.Ship.create (row, col) d length in
 
                       print_endline "Ship placed successfully!";
                       place rest (ship :: placed))
@@ -194,11 +194,11 @@ let read_ship_placements size lengths =
                       place remaining placed)
                 | _ ->
                     print_endline
-                      "Invalid input. Use COLUMN ROW DIRECTION (e.g., 3 5 e).";
+                      "Invalid input. Use ROW COLUMN DIRECTION (e.g., 3 5 e).";
                     place remaining placed)
             | _ ->
                 print_endline
-                  "Invalid input. Use COLUMN ROW DIRECTION (e.g., 3 5 e).";
+                  "Invalid input. Use ROW COLUMN DIRECTION (e.g., 3 5 e).";
                 place remaining placed))
   in
 
