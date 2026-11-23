@@ -86,8 +86,8 @@ let parse_command input =
 (** [print_help ()] displays the available commands during gameplay. *)
 let print_help () =
   print_endline "\nBattleship Commands:";
-  print_endline "  COLUMN ROW    Attack a coordinate (e.g., 3 5)";
-  print_endline "  s COLUMN ROW  Attack a coordinate (e.g., s 3 5)";
+  print_endline "  ROW COL    Attack a coordinate (e.g., 3 5)";
+  print_endline "  s ROW COL  Attack a coordinate (e.g., s 3 5)";
   print_endline "  b             Display the boards";
   print_endline "  h             Display available commands";
   print_endline "  q             Quit the game"
@@ -95,7 +95,7 @@ let print_help () =
 (** [read_command ()] reads the player's input and returns the corresponding
     command. If the input stream closes, the game quits. *)
 let read_command () =
-  print_string "\nEnter COLUMN ROW, or h for help: ";
+  print_string "\nEnter ROW COL, or h for help: ";
   flush stdout;
   match read_line () with
   | input -> parse_command input
