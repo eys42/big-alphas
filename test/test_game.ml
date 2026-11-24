@@ -289,14 +289,25 @@ let test_human_nuke _ =
   ignore (Game.machine_strike game);
   assert_invalid_argument (fun () -> Game.human_nuke game 5 5)
 
+(* Invalid game actions must not spend a power-up or advance the turn. *)
 let test_human_nuke_errors_keep_nuke _ =
   let game = with_nuke () in
+  let board = Game.opponent_board game in
+  let size = Board.dim board in
+  let before = snapshot_board board in
+
   assert_invalid_argument (fun () -> Game.human_nuke game (-1) 0);
-  assert_invalid_argument (fun () -> Game.human_nuke game 0 10);
+  assert_invalid_argument (fun () -> Game.human_nuke game 0 size);
+
+  assert_equal before (snapshot_board board);
+  assert_equal 1 (Game.nukes game Game.Human);
+  assert_equal Game.Human (Game.current_player game);
+  assert_equal None (Game.winner game);
+
+  (* The nuke is still available after both failed attempts. *)
   ignore (Game.human_nuke game 5 5);
-  ignore (Game.machine_strike game);
   assert_equal 0 (Game.nukes game Game.Human);
-  assert_equal Game.Human (Game.current_player game)
+  assert_equal Game.Computer (Game.current_player game)
 
 let test_human_nuke_wrong_turn _ =
   let game = with_nuke () in
@@ -365,6 +376,132 @@ let test_manual_ship_placement _ =
   assert_equal Game.Human (Game.current_player game);
   assert_equal None (Game.winner game)
 
+(* TEST: computer's win victory handling. *)
+let test_computer_victory _ =
+  let game = new_game () in
+  let board = Game.human_board game in
+  let last_x, last_y = find_cell board is_unhit_ship in
+  let size = Board.dim board in
+
+  for x = 0 to size - 1 do
+    for y = 0 to size - 1 do
+      if (x, y) <> (last_x, last_y) then ignore (Board.strike board x y)
+    done
+  done;
+
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+  ignore (Game.human_strike game x y);
+  assert_equal Game.Computer (Game.current_player game);
+  assert_equal None (Game.winner game);
+
+  let (mx, my), result = Game.machine_strike game in
+  assert_equal (last_x, last_y) (mx, my);
+  (match result with
+  | Board.Sunk _ -> ()
+  | _ -> assert_failure "Final computer strike should sink the last ship");
+  assert_equal (Some Game.Computer) (Game.winner game);
+  assert_invalid_argument (fun () -> Game.human_strike game 0 0);
+  assert_invalid_argument (fun () -> Game.machine_turn game)
+
+(* TEST: Computer nuke collection. *)
+let computer_with_nuke () =
+  let rec try_seed seed =
+    if seed > 300 then
+      assert_failure "Could not find a computer nuke pickup in test seeds"
+    else
+      let game = Game.create ~seed Strategy.Medium in
+      let rec find_nuke shots_left =
+        if shots_left = 0 then None
+        else (
+          let x, y = find_cell (Game.opponent_board game) is_empty in
+          ignore (Game.human_strike game x y);
+          let (mx, my), result = Game.machine_strike game in
+          match result with
+          | Board.Treasure_chest (Board.Nuke, _) -> Some (game, (mx, my))
+          | _ -> find_nuke (shots_left - 1))
+      in
+      match find_nuke 6 with
+      | Some found -> found
+      | None -> try_seed (seed + 1)
+  in
+  try_seed 1
+
+(* Opening a chest via a computer attack credits the COMPUTER, not the human. *)
+let test_computer_nuke_collection _ =
+  let game, (x, y) = computer_with_nuke () in
+  assert_equal 1 (Game.nukes game Game.Computer);
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_equal Game.Human (Game.current_player game);
+  assert_equal
+    (Board.Treasure_chest (Board.Collected, true))
+    (Board.cell_at_own (Game.human_board game) x y)
+
+(* machine_turn, unlike machine_strike, should spend a collected nuke. *)
+let test_computer_nuke_usage _ =
+  let game, _ = computer_with_nuke () in
+  assert_equal 1 (Game.nukes game Game.Computer);
+
+  let x, y = find_cell (Game.opponent_board game) is_empty in
+  ignore (Game.human_strike game x y);
+  let board = Game.human_board game in
+  let before = snapshot_board board in
+
+  (match Game.machine_turn game with
+  | Game.Blast (_, results) ->
+      assert_bool "Computer blast must affect at least one cell" (results <> []);
+      assert_bool "Computer blast must update the human's board"
+        (before <> snapshot_board board)
+  | Game.Shot _ -> assert_failure "Medium should use its available nuke");
+
+  assert_equal 0 (Game.nukes game Game.Computer);
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_equal Game.Human (Game.current_player game);
+  assert_equal None (Game.winner game)
+
+(* The Game module must recognize victory caused by a blast, not only a shot. *)
+let test_nuke_victory _ =
+  let game = with_nuke () in
+  let board = Game.opponent_board game in
+  let last_x, last_y = find_cell board is_unhit_ship in
+  let size = Board.dim board in
+
+  (* Set up a nearly finished opponent board without changing Game's turn. *)
+  for x = 0 to size - 1 do
+    for y = 0 to size - 1 do
+      if (x, y) <> (last_x, last_y) then
+        match Board.cell_at_own board x y with
+        | Board.Occupied (_, false) -> ignore (Board.strike board x y)
+        | _ -> ()
+    done
+  done;
+
+  assert_equal None (Game.winner game);
+  let results = Game.human_nuke game last_x last_y in
+  assert_bool "Blast must strike the last ship cell"
+    (List.exists
+       (function
+         | (x, y), Board.Sunk _ -> (x, y) = (last_x, last_y)
+         | _ -> false)
+       results);
+  assert_equal (Some Game.Human) (Game.winner game);
+  assert_equal 0 (Game.nukes game Game.Human);
+  assert_invalid_argument (fun () -> Game.human_strike game 0 0);
+  assert_invalid_argument (fun () -> Game.machine_turn game)
+
+(* Verify that Game does not consume the nuke or change turns when the blast 
+  is rejected. *)
+let test_nuke_used_area_preserves_state _ =
+  let game = with_nuke () in
+  let board = Game.opponent_board game in
+  ignore (Board.nuke board 5 5);
+  let before = snapshot_board board in
+
+  assert_invalid_argument (fun () -> Game.human_nuke game 5 5);
+  assert_equal before (snapshot_board board);
+  assert_equal 1 (Game.nukes game Game.Human);
+  assert_equal Game.Human (Game.current_player game);
+  assert_equal None (Game.winner game)
+
 let suite =
   "Game rules"
   >::: [
@@ -391,6 +528,12 @@ let suite =
          "computer cannot go out of turn" >:: test_machine_turn_wrong_turn;
          "complete game with nukes" >:: test_full_game_machine_turn;
          "testing manual ship placement" >:: test_manual_ship_placement;
+         "computer victory" >:: test_computer_victory;
+         "computer collects a nuke" >:: test_computer_nuke_collection;
+         "computer uses a nuke" >:: test_computer_nuke_usage;
+         "nuke causes victory" >:: test_nuke_victory;
+         "nuking an already-struck area preserves game state"
+         >:: test_nuke_used_area_preserves_state;
        ]
 
 let () = run_test_tt_main suite
