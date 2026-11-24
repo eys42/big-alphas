@@ -1,4 +1,4 @@
-# Authors
+# Authors: Team 9: big ['a]s
 
 ## Team Members
 
